@@ -1,0 +1,23 @@
+markdown:
+  enabled: true
+  output_dir: "data"
+
+siyuan:
+  enabled: true
+  api_url: "http://127.0.0.1:6806"
+  token_env: "SIYUAN_TOKEN"
+  notebook_name: "PostTrain Radar"
+  notebook_id: ""
+  allow_create_missing_doc: true
+  overwrite_existing: false
+
+obsidian:
+  enabled: false
+  vault_path: ""
+  root_dir: "PostTrain Radar"
+
+notion:
+  enabled: false
+
+zotero:
+  enabled: false

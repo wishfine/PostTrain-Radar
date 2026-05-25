@@ -1,0 +1,18 @@
+# PostTrain Radar Manual Tag Overrides
+# You can override metadata parameters here. 
+# Match by normalized paper title (lower-case, alphanumeric only) or source ID.
+#
+# Examples:
+#
+# "direct preference optimization your language model is secretly a reward model":
+#   model_type: "LLM"
+#   priority: "High"
+#   reading_status: "Reading"
+#   post_training_types: ["DPO / Preference Optimization"]
+#   problem_tags: ["Length Bias"]
+#   share_status: "Drafted"
+#   next_action: "Review length bias mitigation strategies."
+#
+# "fdpo12345":
+#   priority: "High"
+#   reading_status: "Finished"

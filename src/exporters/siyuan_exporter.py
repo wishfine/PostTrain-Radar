@@ -1,0 +1,329 @@
+import os
+import requests
+import json
+from src.exporters.base import BaseExporter
+from src.exporters.markdown_exporter import safe_filename
+from src.note_generator import NoteGenerator
+from src.share_generator import ShareGenerator
+
+class SiYuanExporter(BaseExporter):
+    def __init__(self, api_url: str = "http://127.0.0.1:6806", 
+                 token_env: str = "SIYUAN_TOKEN", 
+                 notebook_name: str = "PostTrain Radar",
+                 notebook_id: str = "",
+                 dry_run=False):
+        self.api_url = api_url.rstrip("/")
+        self.token = os.getenv(token_env, "")
+        self.notebook_name = notebook_name
+        self.notebook_id = notebook_id
+        self.dry_run = dry_run
+        self.note_gen = NoteGenerator()
+        self.share_gen = ShareGenerator()
+
+    def _call_api(self, endpoint: str, data: dict) -> dict:
+        url = f"{self.api_url}{endpoint}"
+        headers = {
+            "Content-Type": "application/json"
+        }
+        if self.token:
+            headers["Authorization"] = f"Token {self.token}"
+
+        try:
+            response = requests.post(url, json=data, headers=headers, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            print(f"[!] Error calling SiYuan API {endpoint}: {e}")
+            return None
+
+    def test_connection(self) -> bool:
+        if self.dry_run:
+            print("[*] [DRY-RUN] Simulating SiYuan connection test: SUCCESS")
+            return True
+        if not self.token:
+            print("[!] SIYUAN_TOKEN is not set in environment.")
+            return False
+
+        res = self._call_api("/api/system/version", {})
+        if res and res.get("code") == 0:
+            print(f"[+] Connected to SiYuan Note successfully (Version: {res.get('data')})")
+            return True
+        print("[!] Failed to connect to SiYuan Note API.")
+        return False
+
+    def validate_notebook(self) -> bool:
+        """
+        Validates the configured notebook_name or notebook_id.
+        If target is not found, displays list of active notebooks and returns False.
+        """
+        if self.dry_run and not self.token:
+            # Under dry run, if token is empty, mock it
+            self.notebook_id = "mock_notebook_id"
+            return True
+
+        res = self._call_api("/api/notebook/lsNotebooks", {})
+        if not res or res.get("code") != 0:
+            print("[!] Failed to list notebooks from SiYuan API.")
+            return False
+
+        notebooks = res.get("data", {}).get("notebooks", [])
+        
+        # 1. Match by notebook_id
+        if self.notebook_id:
+            for nb in notebooks:
+                if nb.get("id") == self.notebook_id:
+                    self.notebook_name = nb.get("name")
+                    return True
+            print(f"[!] Notebook ID '{self.notebook_id}' was not found in SiYuan.")
+            return False
+
+        # 2. Match by notebook_name
+        for nb in notebooks:
+            if nb.get("name") == self.notebook_name:
+                self.notebook_id = nb.get("id")
+                print(f"[+] Found SiYuan notebook '{self.notebook_name}' (ID: {self.notebook_id})")
+                return True
+
+        # 3. If no match is found, raise error and display notebooks list
+        print(f"[!] Target notebook '{self.notebook_name}' was not found in SiYuan.")
+        if notebooks:
+            print("Available notebooks in your SiYuan instance:")
+            for nb in notebooks:
+                print(f"  - {nb.get('name')} (ID: {nb.get('id')})")
+        else:
+            print("  (No notebooks found in your SiYuan instance)")
+        return False
+
+    def _find_doc_id_and_path(self, target_path_without_ext: str):
+        """
+        Helper to check if a document exists at target_path_without_ext.
+        """
+        if self.dry_run and not self.token:
+            return None, None
+            
+        components = target_path_without_ext.strip("/").split("/")
+        if not components:
+            return None, None
+        
+        parent_path = "/" + "/".join(components[:-1]) if len(components) > 1 else "/"
+        target_name = components[-1]
+
+        res = self._call_api("/api/filetree/listDocsByPath", {
+            "notebook": self.notebook_id,
+            "path": parent_path
+        })
+        
+        if res and res.get("code") == 0:
+            files = res.get("data", {}).get("files", [])
+            for f in files:
+                name_no_ext = f.get("name", "")
+                if name_no_ext.endswith(".sy"):
+                    name_no_ext = name_no_ext[:-3]
+                if name_no_ext == target_name:
+                    return f.get("id"), f.get("path")
+        return None, None
+
+    def export_paper_note(self, paper: dict, markdown_content: str, overwrite: bool = False) -> bool:
+        if not self.notebook_id and not self.validate_notebook():
+            return False
+
+        venue = safe_filename(paper.get("venue", "unknown"))
+        year = paper.get("year", 2025)
+        title = safe_filename(paper.get("title", "untitled"))
+
+        target_path = f"/01_Papers/{venue}_{year}/{title}"
+        doc_id, doc_path = self._find_doc_id_and_path(target_path)
+
+        action = "CREATE"
+        if doc_id:
+            if not overwrite:
+                print(f"[-] SiYuan paper note '{title}' already exists. Action: SKIP.")
+                paper["siyuan_doc_id"] = doc_id
+                paper["siyuan_path"] = doc_path
+                return True
+            else:
+                action = "MERGE & UPDATE"
+                # Under dry run, just preview
+                if not self.dry_run:
+                    get_res = self._call_api("/api/export/exportMdContent", {"id": doc_id})
+                    if get_res and get_res.get("code") == 0:
+                        old_content = get_res.get("data", {}).get("content", "")
+                        markdown_content = self.note_gen.generate(paper, old_content)
+                    
+                    self._call_api("/api/filetree/removeDoc", {
+                        "notebook": self.notebook_id,
+                        "path": doc_path
+                    })
+
+        if self.dry_run:
+            print(f"[*] [DRY-RUN] Would {action} SiYuan paper note at path: {target_path}")
+            # Mock details
+            paper["siyuan_doc_id"] = doc_id or "dry_run_mock_doc_id"
+            paper["siyuan_path"] = doc_path or f"{target_path}.sy"
+            return True
+
+        create_res = self._call_api("/api/filetree/createDocWithMd", {
+            "notebook": self.notebook_id,
+            "path": target_path,
+            "markdown": markdown_content
+        })
+
+        if create_res and create_res.get("code") == 0:
+            new_id = create_res.get("data")
+            new_path = f"{target_path}.sy"
+            print(f"[+] Synced paper note to SiYuan: {target_path} (ID: {new_id})")
+            paper["siyuan_doc_id"] = new_id
+            paper["siyuan_path"] = new_path
+            return True
+        else:
+            print(f"[!] Failed to sync paper note to SiYuan: {create_res}")
+            return False
+
+    def export_share_brief(self, paper: dict, markdown_content: str, overwrite: bool = False) -> bool:
+        if not self.notebook_id and not self.validate_notebook():
+            return False
+
+        venue = safe_filename(paper.get("venue", "unknown"))
+        year = paper.get("year", 2025)
+        title = safe_filename(paper.get("title", "untitled"))
+
+        target_path = f"/05_Share/{venue}_{year}/{title}_Share_Brief"
+        doc_id, doc_path = self._find_doc_id_and_path(target_path)
+
+        action = "CREATE"
+        if doc_id:
+            if not overwrite:
+                print(f"[-] SiYuan share brief '{title}' already exists. Action: SKIP.")
+                return True
+            else:
+                action = "MERGE & UPDATE"
+                if not self.dry_run:
+                    get_res = self._call_api("/api/export/exportMdContent", {"id": doc_id})
+                    if get_res and get_res.get("code") == 0:
+                        old_content = get_res.get("data", {}).get("content", "")
+                        markdown_content = self.share_gen.generate(paper, old_content)
+                    
+                    self._call_api("/api/filetree/removeDoc", {
+                        "notebook": self.notebook_id,
+                        "path": doc_path
+                    })
+
+        if self.dry_run:
+            print(f"[*] [DRY-RUN] Would {action} SiYuan share brief at path: {target_path}")
+            return True
+
+        create_res = self._call_api("/api/filetree/createDocWithMd", {
+            "notebook": self.notebook_id,
+            "path": target_path,
+            "markdown": markdown_content
+        })
+
+        if create_res and create_res.get("code") == 0:
+            print(f"[+] Synced share brief to SiYuan: {target_path}")
+            return True
+        else:
+            print(f"[!] Failed to sync share brief to SiYuan: {create_res}")
+            return False
+
+    def export_report(self, report_name: str, markdown_content: str, overwrite: bool = False) -> bool:
+        if not self.notebook_id and not self.validate_notebook():
+            return False
+
+        report_name = safe_filename(report_name)
+        target_path = f"/00_Index/{report_name}"
+        doc_id, doc_path = self._find_doc_id_and_path(target_path)
+
+        action = "CREATE"
+        if doc_id:
+            if not overwrite:
+                print(f"[-] SiYuan report '{report_name}' already exists. Action: SKIP.")
+                return True
+            else:
+                action = "OVERWRITE"
+                if not self.dry_run:
+                    self._call_api("/api/filetree/removeDoc", {
+                        "notebook": self.notebook_id,
+                        "path": doc_path
+                    })
+
+        if self.dry_run:
+            print(f"[*] [DRY-RUN] Would {action} SiYuan report at path: {target_path}")
+            return True
+
+        create_res = self._call_api("/api/filetree/createDocWithMd", {
+            "notebook": self.notebook_id,
+            "path": target_path,
+            "markdown": markdown_content
+        })
+
+        if create_res and create_res.get("code") == 0:
+            print(f"[+] Synced report to SiYuan: {target_path}")
+            return True
+        else:
+            print(f"[!] Failed to sync report to SiYuan: {create_res}")
+            return False
+
+    def export_report_at_path(self, target_path: str, markdown_content: str, overwrite: bool = False) -> bool:
+        """
+        Special helper to write report at exact path (for Reading Queue indexing).
+        """
+        if not self.notebook_id and not self.validate_notebook():
+            return False
+
+        doc_id, doc_path = self._find_doc_id_and_path(target_path)
+        action = "CREATE"
+        if doc_id:
+            if not overwrite:
+                return True
+            else:
+                action = "OVERWRITE"
+                if not self.dry_run:
+                    self._call_api("/api/filetree/removeDoc", {
+                        "notebook": self.notebook_id,
+                        "path": doc_path
+                    })
+
+        if self.dry_run:
+            print(f"[*] [DRY-RUN] Would {action} SiYuan document at path: {target_path}")
+            return True
+
+        create_res = self._call_api("/api/filetree/createDocWithMd", {
+            "notebook": self.notebook_id,
+            "path": target_path,
+            "markdown": markdown_content
+        })
+        return create_res and create_res.get("code") == 0
+
+    def export_workflow_prompts(self, prompt_name: str, markdown_content: str, overwrite: bool = False) -> bool:
+        if not self.notebook_id and not self.validate_notebook():
+            return False
+
+        prompt_name = safe_filename(prompt_name)
+        target_path = f"/06_Workflows/Prompts/{prompt_name}"
+        doc_id, doc_path = self._find_doc_id_and_path(target_path)
+
+        if doc_id and not overwrite:
+            return True
+
+        if self.dry_run:
+            print(f"[*] [DRY-RUN] Would sync workflow prompt to SiYuan at path: {target_path}")
+            return True
+
+        if doc_id and not self.dry_run:
+            self._call_api("/api/filetree/removeDoc", {
+                "notebook": self.notebook_id,
+                "path": doc_path
+            })
+
+        create_res = self._call_api("/api/filetree/createDocWithMd", {
+            "notebook": self.notebook_id,
+            "path": target_path,
+            "markdown": markdown_content
+        })
+
+        if create_res and create_res.get("code") == 0:
+            print(f"[+] Synced workflow prompt to SiYuan: {target_path}")
+            return True
+        else:
+            print(f"[!] Failed to sync workflow prompt to SiYuan: {create_res}")
+            return False

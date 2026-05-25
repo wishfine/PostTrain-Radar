@@ -1,0 +1,15 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+logs/
+data/*.db
+data/*.db-journal
+data/reading_notes/
+data/share_briefs/
+data/reports/
+data/knowledge_patches/
+data/00_Index/

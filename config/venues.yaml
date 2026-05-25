@@ -1,0 +1,44 @@
+openreview:
+  venues:
+    ICLR:
+      id: "ICLR.cc"
+      api_version: "v2"
+      venue_id_template: "ICLR.cc/{year}/Conference"
+      years: [2024, 2025, 2026]
+      active: true
+    NeurIPS:
+      id: "NeurIPS.cc"
+      api_version: "v2"
+      venue_id_template: "NeurIPS.cc/{year}/Conference"
+      years: [2024, 2025]
+      active: true
+    ICML:
+      id: "ICML.cc"
+      api_version: "v2"
+      venue_id_template: "ICML.cc/{year}/Conference"
+      years: [2024, 2025]
+      active: true
+
+acl:
+  venues:
+    ACL:
+      id: "acl"
+      active: false
+    EMNLP:
+      id: "emnlp"
+      active: false
+    NAACL:
+      id: "naacl"
+      active: false
+
+cvf:
+  venues:
+    CVPR:
+      id: "cvpr"
+      active: false
+    ICCV:
+      id: "iccv"
+      active: false
+    ECCV:
+      id: "eccv"
+      active: false
