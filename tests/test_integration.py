@@ -172,8 +172,13 @@ class TestIntegration(unittest.TestCase):
         
         # Generate initial note
         initial_note = note_gen.generate(paper)
-        self.assertIn("## [My Reading Notes]", initial_note)
-        self.assertIn("<!-- START_MY_READING_NOTES -->", initial_note)
+        self.assertIn("## My Reading Notes", initial_note)
+        self.assertNotIn("## [My Reading Notes]", initial_note)
+        self.assertNotIn("<!-- START_MY_READING_NOTES -->", initial_note)
+        
+        # Closed tags verification
+        self.assertIn("#LLM#", initial_note)
+        self.assertIn("#Unread#", initial_note)
         
         # Simulate user writing notes
         modified_note = initial_note.replace(
@@ -192,17 +197,22 @@ class TestIntegration(unittest.TestCase):
         
         merged_note = note_gen.generate(updated_paper, existing_content=modified_note)
         
-        # Check that metadata got updated
-        self.assertIn("*   **Priority**: High", merged_note)
-        self.assertIn("*   **Relevance Level**: A_Core_PostTraining", merged_note)
+        # Check that metadata got updated inside the markdown table
+        self.assertIn("| Priority | High |", merged_note)
+        self.assertIn("| Relevance Level | A_Core_PostTraining |", merged_note)
         # Check that human notes are preserved
         self.assertIn("My custom human comments on this paper.", merged_note)
         self.assertIn("My custom judgment comments.", merged_note)
         self.assertNotIn("(在此记录您的阅读细节、推导过程、关键公式或模型架构的独特理解)", merged_note)
 
+        # Test missing protected section behavior (skip and warn)
+        bad_note = modified_note.replace("## My Reading Notes", "## Mismatched Title")
+        skipped_note = note_gen.generate(updated_paper, existing_content=bad_note)
+        self.assertIsNone(skipped_note)
+
         # Test Share Brief merges
         initial_share = share_gen.generate(paper)
-        self.assertIn("<!-- START_MY_SHARE_DETAILS -->", initial_share)
+        self.assertNotIn("<!-- START_MY_SHARE_DETAILS -->", initial_share)
         
         modified_share = initial_share.replace(
             "这篇论文主要讲：",

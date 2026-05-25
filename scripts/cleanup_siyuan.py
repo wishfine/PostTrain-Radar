@@ -42,15 +42,18 @@ def has_human_content(content: str) -> bool:
     from src.note_generator import NoteGenerator
     
     # Extract the user input sections
-    notes = NoteGenerator.extract_section(content, "My Reading Notes", "<!-- START_MY_READING_NOTES -->", "<!-- END_MY_READING_NOTES -->")
-    judgment = NoteGenerator.extract_section(content, "My Judgment", "<!-- START_MY_JUDGMENT -->", "<!-- END_MY_JUDGMENT -->")
-    review = NoteGenerator.extract_section(content, "AI Draft Review", "<!-- START_AI_DRAFT_REVIEW -->", "<!-- END_AI_DRAFT_REVIEW -->")
+    notes = NoteGenerator.extract_section(content, "My Reading Notes") or ""
+    judgment = NoteGenerator.extract_section(content, "My Judgment") or ""
+    review = NoteGenerator.extract_section(content, "AI Draft Review") or ""
     
     # Helper to clean and check
     def is_empty_or_boilerplate(text, boilerplates):
         cleaned = text.strip()
         if not cleaned:
             return True
+        # Remove HTML comments and Obsidian callout headers to clean old note remnants
+        cleaned = re.sub(r"<!--.*?-->", "", cleaned, flags=re.DOTALL)
+        cleaned = re.sub(r">\s*\[\!.*?\]", "", cleaned)
         # Remove common boilerplate lines
         for bp in boilerplates:
             cleaned = cleaned.replace(bp, "")

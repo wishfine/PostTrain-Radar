@@ -2,12 +2,60 @@ import re
 
 class ShareGenerator:
     @staticmethod
-    def extract_section(content: str, start_marker: str, end_marker: str) -> str:
-        pattern = re.escape(start_marker) + r"(.*?)" + re.escape(end_marker)
-        match = re.search(pattern, content, re.DOTALL)
-        if match:
-            return match.group(1).strip()
-        return ""
+    def is_top_level_header(line: str) -> bool:
+        line = line.strip()
+        if not line.startswith("##"):
+            return False
+        title = line[2:].strip()
+        title = re.sub(r"^\d+\.\s*", "", title)
+        title = title.strip("[]").strip()
+        if "/" in title:
+            title = title.split("/")[0].strip()
+        
+        headers = [
+            "auto metadata",
+            "ai draft summary",
+            "classification evidence",
+            "ai draft review",
+            "my reading notes",
+            "my judgment",
+            "knowledge extraction",
+            "knowledge backfeed status",
+            "share decision",
+            "next action",
+            "my share content",
+            "sources"
+        ]
+        return title.lower() in headers
+
+    @staticmethod
+    def extract_section(content: str, header_title: str) -> str:
+        """
+        Robustly extracts section content by checking Markdown headers
+        supporting both numbered/unescaped headings.
+        """
+        if not content:
+            return None
+        lines = content.splitlines()
+        header_pattern = re.compile(rf"^##\s*(?:\d+\.\s*)?\[?{re.escape(header_title)}\]?\s*(?:/\s*.*)?$")
+        
+        start_idx = -1
+        for idx, line in enumerate(lines):
+            if header_pattern.match(line.strip()):
+                start_idx = idx
+                break
+                
+        if start_idx == -1:
+            return None
+            
+        end_idx = len(lines)
+        for idx in range(start_idx + 1, len(lines)):
+            stripped = lines[idx].strip()
+            if stripped.startswith("---") or ShareGenerator.is_top_level_header(stripped):
+                end_idx = idx
+                break
+                
+        return "\n".join(lines[start_idx + 1:end_idx]).strip()
 
     def generate(self, paper: dict, existing_content: str = None) -> str:
         """
@@ -54,8 +102,8 @@ class ShareGenerator:
         my_share_content = ""
         my_sources_content = ""
         if existing_content:
-            my_share_content = self.extract_section(existing_content, "<!-- START_MY_SHARE_DETAILS -->", "<!-- END_MY_SHARE_DETAILS -->")
-            my_sources_content = self.extract_section(existing_content, "<!-- START_SOURCES -->", "<!-- END_SOURCES -->")
+            my_share_content = self.extract_section(existing_content, "My Share Content")
+            my_sources_content = self.extract_section(existing_content, "Sources")
 
         if not my_share_content:
             my_share_content = f"""## 📝 分享标题
@@ -72,7 +120,7 @@ class ShareGenerator:
 2. **核心思想**：作者用什么最直观的招数解决了它？
 3. **最强战绩**：提升了多少？最亮眼的实验数据是什么？
 
-## 🛠️ 15-Minute Technical Session (15分钟组会分享大纲)
+## ⚡ 15-Minute Technical Session (15分钟组会分享大纲)
 1. **背景问题与关键矛盾**：
    - 详细剖析面临的方法瓶颈（如 DPO 的 Length Bias，或者 GRPO 的 Sampling 消耗）。
 2. **方法拆解**：
@@ -84,13 +132,13 @@ class ShareGenerator:
 4. **我的评价与思考**：
    - 它的创新是真实的吗？在工程上好部署吗？
 
-## 🔬 30-Minute Deep Dive Seminar (30分钟深度研讨大纲)
+## ⚡ 30-Minute Deep Dive Seminar (30分钟深度研讨大纲)
 1. **深入方法与公式分析**：
    - 细致剖析损失函数（Loss Function）或理论推导逻辑。
 2. **工程实现细节与踩坑分析**：
    - 代码复现时的可能坑点，或是数据质量清洗逻辑。
 3. **前沿技术路线横向对比**：
-   - 该方法和已有主流 DPO / PPO / GRPO 方法的路线图技术演进对比。
+   - 该方法 and 已有主流 DPO / PPO / GRPO 方法的路线图技术演进对比。
 4. **开放式问题讨论**：
    - 引导组会讨论的 3 个问题：
      - 问题1：
@@ -106,19 +154,12 @@ class ShareGenerator:
 
         share_brief = f"""# Paper Share Brief: {title}
 
-## 1. Auto Metadata
-<!-- START_AUTO_METADATA -->
+## Auto Metadata
 {metadata_content}
-<!-- END_AUTO_METADATA -->
 
-## 2. My Share Content
-<!-- START_MY_SHARE_DETAILS -->
+## My Share Content
 {my_share_content}
-<!-- END_MY_SHARE_DETAILS -->
 
-## 3. Sources / 来源溯源
-<!-- START_SOURCES -->
-{my_sources_content}
-<!-- END_SOURCES -->
-"""
+## Sources
+{my_sources_content}"""
         return share_brief

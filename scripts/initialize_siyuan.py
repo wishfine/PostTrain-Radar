@@ -1,10 +1,12 @@
 import requests
 import json
 import time
+import argparse
 
 API_URL = "http://127.0.0.1:6806"
 API_TOKEN = "bqrrmb48o36gbpo2"
 NOTEBOOK_NAME = "PostTrain_Radar"
+OVERWRITE = False
 
 def call_api(endpoint, data):
     url = f"{API_URL}{endpoint}"
@@ -49,7 +51,60 @@ def get_or_create_notebook(name):
     print(f"  [!] Failed to create notebook: {create_res}")
     return None
 
+def find_doc(notebook_id, target_path_without_ext):
+    components = target_path_without_ext.strip("/").split("/")
+    if not components:
+        return None
+    
+    current_path = "/"
+    current_id = None
+    
+    for comp in components:
+        res = call_api("/api/filetree/listDocsByPath", {
+            "notebook": notebook_id,
+            "path": current_path
+        })
+        if not res or res.get("code") != 0:
+            return None
+            
+        files = res.get("data", {}).get("files", [])
+        found = False
+        for f in files:
+            name = f.get("name", "")
+            if name.endswith(".sy"):
+                name = name[:-3]
+            if name == comp:
+                current_id = f.get("id")
+                current_path = f.get("path")
+                if current_path.endswith(".sy"):
+                    current_path = current_path[:-3]
+                found = True
+                break
+        if not found:
+            return None
+            
+    return current_id
+
 def create_doc(notebook_id, path, md_content=""):
+    doc_id = find_doc(notebook_id, path)
+    if doc_id:
+        if not OVERWRITE:
+            print(f"[-] Doc {path} already exists. Skipping (overwrite=False).")
+            return doc_id
+        else:
+            print(f"[*] Updating doc in place: {path} (ID: {doc_id})...")
+            update_res = call_api("/api/block/updateBlock", {
+                "id": doc_id,
+                "dataType": "markdown",
+                "data": md_content
+            })
+            if update_res and update_res.get("code") == 0:
+                print(f"  [+] Success updating block")
+                return doc_id
+            else:
+                print(f"  [!] Failed updating: {update_res}")
+                return doc_id
+
     print(f"Creating doc: {path}...")
     res = call_api("/api/filetree/createDocWithMd", {
         "notebook": notebook_id,
@@ -64,6 +119,12 @@ def create_doc(notebook_id, path, md_content=""):
         return None
 
 def main():
+    global OVERWRITE
+    parser = argparse.ArgumentParser(description="Initialize or update SiYuan workspace structure.")
+    parser.add_argument("--overwrite", action="store_true", help="Force overwrite existing documents (updating them in place)")
+    args = parser.parse_args()
+    OVERWRITE = args.overwrite
+
     print("=== Starting SiYuan V3 Note Workspace Rebuild ===")
 
     # Resolve Notebook ID dynamically
@@ -551,6 +612,18 @@ graph TD
     create_doc(notebook_id, "/05_Share/Blog_Drafts", "# Blog Drafts\n\n技术博客草稿。")
     create_doc(notebook_id, "/05_Share/PPT_Outlines", "# PPT Outlines\n\n汇报与分享 PPT 大纲。")
     create_doc(notebook_id, "/05_Share/Share_Topic_Pool", "# Share Topic Pool\n\n待分享选题候选池。")
+    
+    # 05_Share/Group_Meeting/Paper_Briefs directories
+    create_doc(notebook_id, "/05_Share/Group_Meeting/Paper_Briefs", "# Paper Briefs\n\n单篇论文组会分享稿。")
+    create_doc(notebook_id, "/05_Share/Group_Meeting/Paper_Briefs/ICLR_2025", "# ICLR 2025 Paper Briefs")
+    create_doc(notebook_id, "/05_Share/Group_Meeting/Paper_Briefs/NeurIPS_2025", "# NeurIPS 2025 Paper Briefs")
+    create_doc(notebook_id, "/05_Share/Group_Meeting/Paper_Briefs/ICML_2025", "# ICML 2025 Paper Briefs")
+    create_doc(notebook_id, "/05_Share/Group_Meeting/Paper_Briefs/ACL_2025", "# ACL 2025 Paper Briefs")
+    create_doc(notebook_id, "/05_Share/Group_Meeting/Paper_Briefs/EMNLP_2025", "# EMNLP 2025 Paper Briefs")
+    create_doc(notebook_id, "/05_Share/Group_Meeting/Paper_Briefs/CVPR_2025", "# CVPR 2025 Paper Briefs")
+    create_doc(notebook_id, "/05_Share/Group_Meeting/Paper_Briefs/ICCV_2025", "# ICCV 2025 Paper Briefs")
+    create_doc(notebook_id, "/05_Share/Group_Meeting/Paper_Briefs/ArXiv_Preprints", "# ArXiv Preprints Paper Briefs")
+    create_doc(notebook_id, "/05_Share/Group_Meeting/Paper_Briefs/Manual_Import", "# Manual Import Paper Briefs")
 
     share_template_md = """# 分享标题
 

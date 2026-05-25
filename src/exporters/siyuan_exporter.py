@@ -104,24 +104,35 @@ class SiYuanExporter(BaseExporter):
         components = target_path_without_ext.strip("/").split("/")
         if not components:
             return None, None
-        
-        parent_path = "/" + "/".join(components[:-1]) if len(components) > 1 else "/"
-        target_name = components[-1]
 
-        res = self._call_api("/api/filetree/listDocsByPath", {
-            "notebook": self.notebook_id,
-            "path": parent_path
-        })
+        current_path = "/"
+        current_id = None
         
-        if res and res.get("code") == 0:
+        for comp in components:
+            res = self._call_api("/api/filetree/listDocsByPath", {
+                "notebook": self.notebook_id,
+                "path": current_path
+            })
+            if not res or res.get("code") != 0:
+                return None, None
+                
             files = res.get("data", {}).get("files", [])
+            found = False
             for f in files:
-                name_no_ext = f.get("name", "")
-                if name_no_ext.endswith(".sy"):
-                    name_no_ext = name_no_ext[:-3]
-                if name_no_ext == target_name:
-                    return f.get("id"), f.get("path")
-        return None, None
+                name = f.get("name", "")
+                if name.endswith(".sy"):
+                    name = name[:-3]
+                if name == comp:
+                    current_id = f.get("id")
+                    current_path = f.get("path")
+                    if current_path.endswith(".sy"):
+                        current_path = current_path[:-3]
+                    found = True
+                    break
+            if not found:
+                return None, None
+                
+        return current_id, current_path + ".sy" if not current_path.endswith(".sy") else current_path
 
     def export_paper_note(self, paper: dict, markdown_content: str, overwrite: bool = False) -> bool:
         if not self.notebook_id and not self.validate_notebook():
@@ -148,10 +159,15 @@ class SiYuanExporter(BaseExporter):
             # Document already exists, update in-place using updateBlock
             if not self.dry_run:
                 get_res = self._call_api("/api/export/exportMdContent", {"id": doc_id})
+                markdown_content = None
                 if get_res and get_res.get("code") == 0:
                     old_content = get_res.get("data", {}).get("content", "")
                     markdown_content = self.note_gen.generate(paper, old_content, overwrite=overwrite)
                 
+                if markdown_content is None:
+                    print(f"[!] WARNING: Skipping update for paper note '{title}' because protected sections were missing in the existing document.")
+                    return True
+
                 update_res = self._call_api("/api/block/updateBlock", {
                     "id": doc_id,
                     "dataType": "markdown",

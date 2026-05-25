@@ -54,6 +54,10 @@ class ObsidianExporter(BaseExporter):
                         markdown_content = self.note_gen.generate(paper, old_content)
                     except Exception as e:
                         print(f"[!] Error merging Obsidian note: {e}")
+                    
+                    if markdown_content is None:
+                        print(f"[!] WARNING: Skipping update for paper note '{title}' because protected sections were missing in the existing document.")
+                        return True
 
         if self.dry_run:
             print(f"[*] [DRY-RUN] Would {action} Obsidian note at: {file_path}")

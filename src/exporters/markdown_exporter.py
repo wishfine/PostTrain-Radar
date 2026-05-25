@@ -51,6 +51,10 @@ class MarkdownExporter(BaseExporter):
                         markdown_content = self.note_gen.generate(paper, old_content)
                     except Exception as e:
                         print(f"[!] Error reading old paper note for merge: {e}. Writing fresh copy.")
+                    
+                    if markdown_content is None:
+                        print(f"[!] WARNING: Skipping update for paper note '{title}' because protected sections were missing in the existing document.")
+                        return True
 
         if self.dry_run:
             print(f"[*] [DRY-RUN] Would {action} paper note at: {file_path}")
