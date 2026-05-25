@@ -635,9 +635,20 @@ class PostTrainRadarApp:
         if note_type in ["all"]:
             # Generate Reading Queue (Full)
             queue_md = self.generate_reading_queue(papers)
-            success = exporter.export_report_at_path("/00_Index/Reading_Queue_Full", queue_md, overwrite=True)
-            if success:
-                metrics["sync_count"] += 1
+            
+            # Save locally to data/00_Index and data/reports
+            os.makedirs("data/00_Index", exist_ok=True)
+            os.makedirs("data/reports", exist_ok=True)
+            with open("data/00_Index/Reading_Queue_Full.md", "w", encoding="utf-8") as f:
+                f.write(queue_md)
+            with open("data/reports/Reading_Queue_Full.md", "w", encoding="utf-8") as f:
+                f.write(queue_md)
+            logger.info("[+] Full reading queue saved to data/00_Index/Reading_Queue_Full.md and data/reports/Reading_Queue_Full.md")
+
+            if target_type != "siyuan":
+                success = exporter.export_report_at_path("/00_Index/Reading_Queue_Full", queue_md, overwrite=True)
+                if success:
+                    metrics["sync_count"] += 1
 
             # Generate Reading Queue (Featured)
             queue_featured_md = self.generate_reading_queue_featured(papers)

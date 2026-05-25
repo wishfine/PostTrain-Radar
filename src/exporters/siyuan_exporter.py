@@ -201,17 +201,11 @@ class SiYuanExporter(BaseExporter):
         source = paper.get("source", "").lower()
         status = paper.get("status", "").lower()
 
-        venue = safe_filename(paper.get("venue", "unknown"))
+        venue = safe_filename(paper.get("venue", "unknown")).upper()
         year = paper.get("year", 2025)
         title = safe_filename(paper.get("title", "untitled"))
 
-        # Mirror routing directory structure under 05_Share/
-        if source in ["openreview", "acl_anthology", "cvf_openaccess"] and status == "accepted":
-            target_path = f"/05_Share/{venue}_{year}/{title}_Share_Brief"
-        elif source == "arxiv":
-            target_path = f"/05_Share/ArXiv_Preprints/{title}_Share_Brief"
-        else:
-            target_path = f"/05_Share/Manual_Import/{title}_Share_Brief"
+        target_path = f"/05_Share/Group_Meeting/Paper_Briefs/{venue}_{year}/{title}_Share_Brief"
 
         doc_id, doc_path = self._find_doc_id_and_path(target_path)
 
@@ -345,6 +339,7 @@ class SiYuanExporter(BaseExporter):
 
         if doc_id:
             if not overwrite:
+                print(f"[-] Workflow prompt '{prompt_name}' already exists in SiYuan. Action: SKIP (overwrite=False).")
                 return True
             else:
                 if not self.dry_run:

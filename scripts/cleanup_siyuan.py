@@ -304,6 +304,19 @@ def main():
                 })
                 if res and res.get("code") == 0:
                     print(f"[+] ARCHIVED: '{title}' successfully moved to archive parent.")
+                    if db_rec:
+                        now = datetime.now().isoformat()
+                        new_path = f"{archive_folder_path}/{title}.sy"
+                        app.db.conn.execute(
+                            "UPDATE papers SET siyuan_path = ?, siyuan_sync_time = ?, siyuan_sync_mode = 'archived' WHERE id = ?",
+                            (new_path, now, db_rec["id"])
+                        )
+                        app.db.conn.execute(
+                            "UPDATE paper_tags SET include_in_siyuan = 0 WHERE paper_id = ?",
+                            (db_rec["id"],)
+                        )
+                        app.db.conn.commit()
+                        print(f"    - Updated database sync meta for '{title}' (siyuan_sync_mode='archived', include_in_siyuan=0)")
                     archived_count += 1
                 else:
                     print(f"[!] Failed to archive '{title}': {res}")

@@ -588,5 +588,157 @@ class TestIntegration(unittest.TestCase):
         )
         self.assertTrue(has_human_content(user_edited_note))
 
+    def test_prompt_sync_overwrite_rule(self):
+        from src.exporters.siyuan_exporter import SiYuanExporter
+        exporter = SiYuanExporter(dry_run=False, token_env="FAKE_TOKEN")
+        exporter.notebook_id = "fake_notebook_id"
+        
+        # Mock _find_doc_id_and_path to simulate existing doc
+        exporter._find_doc_id_and_path = MagicMock(return_value=("fake_doc_id", "/path/to/doc"))
+        exporter._call_api = MagicMock(return_value={"code": 0, "data": "updated_id"})
+        
+        # When overwrite is False, should skip and return True
+        res_skip = exporter.export_workflow_prompts("test_prompt", "content", overwrite=False)
+        self.assertTrue(res_skip)
+        exporter._call_api.assert_not_called()
+        
+        # When overwrite is True, should call updateBlock API
+        res_update = exporter.export_workflow_prompts("test_prompt", "content", overwrite=True)
+        self.assertTrue(res_update)
+        exporter._call_api.assert_called_once_with("/api/block/updateBlock", {
+            "id": "fake_doc_id",
+            "dataType": "markdown",
+            "data": "content"
+        })
+
+    def test_share_brief_unified_routing(self):
+        from src.exporters.siyuan_exporter import SiYuanExporter
+        exporter = SiYuanExporter(dry_run=True, token_env="FAKE_TOKEN")
+        exporter.notebook_id = "fake_notebook_id"
+        exporter._find_doc_id_and_path = MagicMock(return_value=(None, None))
+        
+        paper = {
+            "title": "A Great Post-Training Method",
+            "venue": "iclr",
+            "year": 2025,
+            "source": "openreview",
+            "status": "accepted"
+        }
+        
+        # Simulate dry run creation
+        with patch.object(exporter, '_call_api') as mock_call:
+            exporter.export_share_brief(paper, "markdown content", overwrite=False)
+            # Under dry run, it prints simulation but doesn't call API. Let's inspect mock_call not called or verify paths.
+            # To get target path, let's call without dry run or check how target path is computed.
+            # Let's temporarily disable dry_run for testing target path
+            exporter.dry_run = False
+            mock_call.return_value = {"code": 0, "data": "new_brief_id"}
+            exporter.export_share_brief(paper, "markdown content", overwrite=False)
+            mock_call.assert_called_once()
+            call_args = mock_call.call_args[0]
+            self.assertEqual(call_args[0], "/api/filetree/createDocWithMd")
+            self.assertEqual(call_args[1]["path"], "/05_Share/Group_Meeting/Paper_Briefs/ICLR_2025/A Great Post-Training Method_Share_Brief")
+
+    def test_generate_override_candidates_logic(self):
+        from scripts.generate_override_candidates import get_candidates
+        db = DatabaseManager(self.db_path)
+        
+        # Insert a mix of papers
+        papers_data = [
+            # Core paper
+            {
+                "title": "Core Paper", "title_norm": "core paper", "venue": "ICLR", "year": 2025,
+                "source": "openreview", "source_id": "p1", "status": "accepted"
+            },
+            # High priority non-core
+            {
+                "title": "High Priority Non Core", "title_norm": "high priority non core", "venue": "ICLR", "year": 2025,
+                "source": "openreview", "source_id": "p2", "status": "accepted"
+            },
+            # Worth sharing paper
+            {
+                "title": "Worth Sharing Paper", "title_norm": "worth sharing paper", "venue": "ICLR", "year": 2025,
+                "source": "openreview", "source_id": "p3", "status": "accepted"
+            },
+            # Regular paper but high confidence
+            {
+                "title": "High Confidence Paper", "title_norm": "high confidence paper", "venue": "ICLR", "year": 2025,
+                "source": "openreview", "source_id": "p4", "status": "accepted"
+            }
+        ]
+        
+        ids = []
+        for p in papers_data:
+            ids.append(db.insert_or_update_paper(p))
+            
+        # Update tags
+        # Core paper (A_Core_PostTraining, Low priority, conf 0.5)
+        db.update_paper_tags(ids[0], {"is_relevant": 1, "relevance_level": "A_Core_PostTraining", "priority": "Low", "confidence": 0.5})
+        # High priority (B_Related, High priority, conf 0.6)
+        db.update_paper_tags(ids[1], {"is_relevant": 1, "relevance_level": "B_Related_LLM_VLM_Training_or_Evaluation", "priority": "High", "confidence": 0.6})
+        # Worth sharing (B_Related, Medium priority, WorthSharing, conf 0.4)
+        db.update_paper_tags(ids[2], {"is_relevant": 1, "relevance_level": "B_Related_LLM_VLM_Training_or_Evaluation", "priority": "Medium", "share_status": "WorthSharing", "confidence": 0.4})
+        # High confidence (B_Related, Medium priority, conf 0.9)
+        db.update_paper_tags(ids[3], {"is_relevant": 1, "relevance_level": "B_Related_LLM_VLM_Training_or_Evaluation", "priority": "Medium", "confidence": 0.9})
+        
+        db.close()
+        
+        # Call get_candidates using our temporary DB
+        with patch('scripts.generate_override_candidates.PostTrainRadarApp') as mock_app_class:
+            mock_app = MagicMock()
+            mock_app.db = DatabaseManager(self.db_path)
+            mock_app_class.return_value = mock_app
+            
+            candidates = get_candidates("ICLR", 2025, top_k=4)
+            
+            # Sorting should be:
+            # 1. Core Paper (A_Core_PostTraining)
+            # 2. High Priority Non Core (High priority)
+            # 3. Worth Sharing Paper (WorthSharing)
+            # 4. High Confidence Paper (confidence 0.9)
+            self.assertEqual(candidates[0]["title"], "Core Paper")
+            self.assertEqual(candidates[1]["title"], "High Priority Non Core")
+            self.assertEqual(candidates[2]["title"], "Worth Sharing Paper")
+            self.assertEqual(candidates[3]["title"], "High Confidence Paper")
+            mock_app.db.close()
+
+    def test_reset_siyuan_sync_meta_action(self):
+        from scripts.reset_siyuan_sync_meta import main
+        db = DatabaseManager(self.db_path)
+        
+        # Insert paper with sync metadata
+        paper = {
+            "title": "Reset Test Paper", "title_norm": "reset test paper", "venue": "ICLR", "year": 2025,
+            "source": "openreview", "source_id": "reset_p1", "status": "accepted"
+        }
+        paper_id = db.insert_or_update_paper(paper)
+        db.update_siyuan_meta(paper_id, "fake_doc_id", "fake_path", "fake_time", "fake_mode")
+        db.update_paper_tags(paper_id, {"include_in_siyuan": 1, "manual_selected": 1, "include_in_reading_queue": 1})
+        db.close()
+        
+        # Mock sys.argv
+        test_args = ["reset_siyuan_sync_meta.py", "--venue", "ICLR", "--year", "2025", "--confirm-reset"]
+        with patch('sys.argv', test_args), patch('scripts.reset_siyuan_sync_meta.PostTrainRadarApp') as mock_app_class:
+            mock_app = MagicMock()
+            mock_app.db = DatabaseManager(self.db_path)
+            mock_app_class.return_value = mock_app
+            
+            main()
+            
+            # Reopen DB to verify fields
+            db_verify = DatabaseManager(self.db_path)
+            papers = db_verify.get_classified_papers("ICLR", 2025)
+            self.assertEqual(len(papers), 1)
+            p = papers[0]
+            self.assertIsNone(p["siyuan_doc_id"])
+            self.assertIsNone(p["siyuan_path"])
+            self.assertIsNone(p["siyuan_sync_time"])
+            self.assertIsNone(p["siyuan_sync_mode"])
+            self.assertEqual(p["include_in_siyuan"], 0)
+            # Manual curation fields must be preserved!
+            self.assertEqual(p["manual_selected"], 1)
+            self.assertEqual(p["include_in_reading_queue"], 1)
+            db_verify.close()
+
 if __name__ == "__main__":
     unittest.main()
