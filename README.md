@@ -182,33 +182,74 @@ PostTrain Radar/
 
 ---
 
-## 10. 人工修改保护机制 (Note Preservation)
+## 10. 精选同步与清理维护 (Curated Sync & Cleanup)
+
+> [!NOTE]
+> 为了防止海量会议论文把知识库撑爆，系统在 v0.1.3 引入了**精选同步 (Curated Workspace) 理念**。默认不同步所有候选论文，只同步精心挑选的核心或高优先级论文。
+
+### 10.1 选择性同步配置 (--siyuan-scope)
+运行 `run_pipeline.py` 时，你可以通过 `--siyuan-scope` 参数来限制同步到思源笔记的论文卡片数量：
+* `--siyuan-scope none`: 不同步任何内容。
+* `--siyuan-scope index_only`: 只同步索引页面（精选队列、报告、分享池等）与 Workflow templates，不同步具体论文笔记。
+* `--siyuan-scope selected`: **(默认)** 只同步在 `tag_overrides.yaml` 中被标记为精选的论文（`manual_selected: true`、`include_in_siyuan: true` 或 `include_in_reading_queue: true`）。
+* `--siyuan-scope high`: 同步高优先级的 Core 论文 + 人工精选论文。
+* `--siyuan-scope core`: 同步所有分类为 `A_Core_PostTraining` 的 Core 论文 + 人工精选论文。
+* `--siyuan-scope worth_sharing`: 同步被标为 `WorthSharing` (分享候选) 的论文 + 人工精选论文。
+* `--siyuan-scope all`: 全量同步所有候选论文。**必须同时带上 `--confirm-all-sync` 才能执行**，防止误同步几百篇论文。
+
+### 10.2 最大数量限制 (--max-siyuan-notes)
+通过 `--max-siyuan-notes 30` (默认限制 30 篇) 可以设定最大写入的论文笔记数。超出限制的部分会自动跳过（优先保留人工精选和高优先级论文），且不限制索引、Prompt 和分享大纲页面。
+
+### 10.3 清理归档工具 (cleanup_siyuan.py)
+用于清理/归档笔记本中未满足当前 scope 且没有手写笔记的论文卡片：
+```bash
+# 1. 扫描数据库中的已同步文件并执行 dry-run 模拟归档（默认 dry-run 开启）
+python scripts/cleanup_siyuan.py --venue ICLR --year 2025 --source db --mode archive
+
+# 2. 扫描思源目录结构（ArXiv_Preprints, Manual_Import 等）并执行归档 (写入 SiYuan 必须使用 --no-dry-run)
+python scripts/cleanup_siyuan.py --venue ICLR --year 2025 --source path_scan --mode archive --no-dry-run
+
+# 3. 永久删除非精选且无手写内容的论文卡片 (需要额外的安全确认)
+python scripts/cleanup_siyuan.py --venue ICLR --year 2025 --source path_scan --mode delete --confirm-delete --i-understand-this-will-remove-siyuan-docs --no-dry-run
+```
+> [!IMPORTANT]
+> * **moveDocsByID 归档**：`archive` 模式底层使用 SiYuan `moveDocsByID` 接口，原样移动文档，绝不会破坏 block IDs 和 backlinks 关联。
+> * **安全保障**：清理工具会通过 `/api/export/exportMdContent` 自动拉取文档并过滤模版占位符。只要你在这篇论文卡片里手写了任何只言片语（哪怕仅有一行笔记），系统都绝对不会对其进行归档或删除。
+
+---
+
+## 11. 人工修改保护机制 (Note Preservation)
 
 > [!WARNING]
-> 为了保障你写好的读书笔记和组会总结不被后续的自动运行覆盖，系统设计了严密的安全机制。
+> 为了保障你写好的读书笔记、批判性思考和组会总结不被后续的自动运行覆盖，系统设计了严密的安全机制。
 
 1. **默认不覆盖**：若文件或 SiYuan 文档已存在，默认只做提示并跳过。
-2. **选择性覆盖与自动合并**：当传入 `--overwrite` 参数时，程序会首先读取已存在的笔记内容，**利用 HTML 注释标记自动解析提取出你在 `My Notes` 和 `My Judgment` 区域手动写下的内容**，然后再与最新的元数据进行合并写入。
-3. **防覆盖模版结构**：
+2. **选择性覆盖与自动合并**：当传入 `--overwrite` 参数时，程序会首先读取已存在的笔记内容，**利用 HTML 注释标记自动解析提取出你在 `My Reading Notes`、`My Judgment` 和 `AI Draft Review` 区域手动写下的内容**，同时保留 `Knowledge Backfeed Status` 中的勾选框状态，然后再与最新的元数据和 AI Draft Summary 进行合并写入。
+3. **防覆盖模板结构**：
    ```markdown
-   # Paper Reading Note: ...
+   # Paper Title
    
-   ## 1. Auto Metadata
+   ## [Auto Metadata]
    <!-- START_AUTO_METADATA -->
    [这里由系统自动更新，包括阅读状态、优先级等]
    <!-- END_AUTO_METADATA -->
    
-   ## 2. AI Draft
-   <!-- START_AI_DRAFT -->
-   [AI 筛选出的关键词和匹配理由]
-   <!-- END_AI_DRAFT -->
+   ## [AI Draft Summary]
+   <!-- START_AI_DRAFT_SUMMARY -->
+   [AI 筛选出的关键词、匹配理由和摘要]
+   <!-- END_AI_DRAFT_SUMMARY -->
    
-   ## 3. My Notes
-   <!-- START_MY_NOTES -->
+   ## [AI Draft Review]
+   <!-- START_AI_DRAFT_REVIEW -->
+   [人工对 AI 草稿可信度的审查记录，同步时将被原样保留！]
+   <!-- END_AI_DRAFT_REVIEW -->
+   
+   ## [My Reading Notes]
+   <!-- START_MY_READING_NOTES -->
    [这里是你在思源/Obsidian里手写的精读笔记，同步时将被原样保留！]
-   <!-- END_MY_NOTES -->
+   <!-- END_MY_READING_NOTES -->
    
-   ## 4. My Judgment
+   ## [My Judgment]
    <!-- START_MY_JUDGMENT -->
    [这里是你的批判性思考，同步时将被原样保留！]
    <!-- END_MY_JUDGMENT -->
@@ -216,7 +257,7 @@ PostTrain Radar/
 
 ---
 
-## 11. 后续增强方向 (Future Roadmap)
+## 12. 后续增强方向 (Future Roadmap)
 
 1. **多数据源扩展**：正式打通 ACL Anthology XML 与 CVF Open Access 页面，提供稳定的多会议元数据搜集。
 2. **学术图谱扩充**：集成 Semantic Scholar API，自动抓取论文的引用量 (Citation Count)、经典参考文献、以及相关工作。

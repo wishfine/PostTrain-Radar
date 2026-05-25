@@ -364,21 +364,218 @@ class PostTrainRadarApp:
 """
         return queue_md
 
-    def run_sync(self, venue: str, year: int, target_type: str, note_type: str = "all", overwrite: bool = False, dry_run: bool = False, patch_scope: str = "high") -> dict:
-        exporter = self.get_exporter(target_type, dry_run=dry_run)
+    def _get_siyuan_path(self, paper: dict) -> str:
+        source = paper.get("source", "").lower()
+        status = paper.get("status", "").lower()
         
+        venue = safe_filename(paper.get("venue", "unknown"))
+        year = paper.get("year", 2025)
+        title = safe_filename(paper.get("title", "untitled"))
+
+        if source in ["openreview", "acl_anthology", "cvf_openaccess"] and status == "accepted":
+            return f"/01_Papers/{venue}_{year}/{title}"
+        elif source == "arxiv":
+            return f"/01_Papers/ArXiv_Preprints/{title}"
+        else:
+            return f"/01_Papers/Manual_Import/{title}"
+
+    def _build_markdown_table(self, paper_list: list) -> str:
+        if not paper_list:
+            return "*None*\n"
+        lines = [
+            "| Paper Title | Priority | Relevance Level | Scope Reason | SiYuan Path |",
+            "| :--- | :--- | :--- | :--- | :--- |"
+        ]
+        for p in paper_list:
+            # Escape pipes to avoid breaking table layout
+            title = p["title"].replace("|", "\\|")
+            reason = p["scope_reason"].replace("|", "\\|")
+            lines.append(f"| {title} | {p['priority']} | {p['relevance_level']} | {reason} | {p['siyuan_path']} |")
+        return "\n".join(lines) + "\n"
+
+    def run_sync(self, venue: str, year: int, target_type: str, note_type: str = "all", overwrite: bool = False, dry_run: bool = False, siyuan_scope: str = "selected", max_siyuan_notes: int = 30, patch_scope: str = "high", confirm_all_sync: bool = False) -> dict:
         metrics = {
             "sync_count": 0,
             "skipped_count": 0,
-            "failed_count": 0
+            "failed_count": 0,
+            "core_posttraining": 0,
+            "selected_for_siyuan": 0,
+            "actually_synced_to_siyuan": 0,
+            "skipped_due_to_scope": 0,
+            "skipped_due_to_max_limit": 0,
+            "plan_actually_synced": [],
+            "plan_skipped_scope": [],
+            "plan_skipped_limit": [],
+            "selected_scope_empty": False
         }
 
+        if target_type == "siyuan" and siyuan_scope == "none":
+            logger.info("SiYuan sync scope is set to 'none'. Skipping synchronization entirely.")
+            return metrics
+
+        if target_type == "siyuan" and siyuan_scope == "all" and not confirm_all_sync:
+            raise ValueError(
+                "Safety Check: You are trying to sync ALL papers to SiYuan which can clutter your workspace. "
+                "Please run with --confirm-all-sync to confirm."
+            )
+
+        exporter = self.get_exporter(target_type, dry_run=dry_run)
+        
         if not exporter.test_connection():
             logger.error(f"[!] Target exporter '{target_type}' connection test failed. Sync aborted.")
             return metrics
 
         papers = self.db.get_classified_papers(venue, year)
         relevant_papers = [p for p in papers if p.get("is_relevant")]
+
+        # Determine papers to sync based on siyuan_scope
+        sync_papers = []
+        skipped_due_to_scope = 0
+        skipped_due_to_limit = 0
+        
+        plan_actually_synced = []
+        plan_skipped_scope = []
+        plan_skipped_limit = []
+        
+        temp_papers = []
+        for p in relevant_papers:
+            is_manual_selected_or_siyuan = (p.get("include_in_siyuan") == 1 or p.get("manual_selected") == 1 or p.get("include_in_reading_queue") == 1)
+            is_a_core = (p.get("relevance_level") == "A_Core_PostTraining" or p.get("is_core_posttraining") == 1)
+            is_high_prio = (p.get("priority") == "High")
+            is_worth_sharing = (p.get("share_status") == "WorthSharing" or (p.get("share_status") and "WorthSharing" in p.get("share_status")) or p.get("include_in_share_pool") == 1)
+
+            if target_type == "siyuan":
+                if siyuan_scope == "index_only":
+                    is_in_scope = False
+                    scope_reason = "siyuan_scope is 'index_only'"
+                elif siyuan_scope == "selected":
+                    is_in_scope = is_manual_selected_or_siyuan
+                    scope_reason = "matches selected criteria (manual_selected/siyuan/reading_queue)" if is_in_scope else "not manually selected/queued"
+                elif siyuan_scope == "high":
+                    is_in_scope = (is_high_prio and is_a_core) or is_manual_selected_or_siyuan
+                    scope_reason = "high priority core paper or selected" if is_in_scope else "not high priority core paper or selected"
+                elif siyuan_scope == "core":
+                    is_in_scope = is_a_core or is_manual_selected_or_siyuan
+                    scope_reason = "core post-training paper or selected" if is_in_scope else "not core post-training paper or selected"
+                elif siyuan_scope == "worth_sharing":
+                    if p.get("relevance_level") == "D_Irrelevant":
+                        is_in_scope = (p.get("manual_selected") == 1)
+                        scope_reason = "D_Irrelevant with manual_selected" if is_in_scope else "D_Irrelevant skipped in worth_sharing scope"
+                    else:
+                        is_in_scope = is_worth_sharing or is_manual_selected_or_siyuan
+                        scope_reason = "worth sharing or selected" if is_in_scope else "not worth sharing or selected"
+                elif siyuan_scope == "all":
+                    is_in_scope = True
+                    scope_reason = "all papers included"
+                else:
+                    is_in_scope = is_manual_selected_or_siyuan
+                    scope_reason = "default selected scope"
+            else:
+                is_in_scope = True
+                scope_reason = "non-siyuan target exporter"
+
+            if is_in_scope:
+                temp_papers.append((p, scope_reason))
+            else:
+                plan_skipped_scope.append({
+                    "title": p.get("title", ""),
+                    "priority": p.get("priority", "Medium"),
+                    "relevance_level": p.get("relevance_level", "D_Irrelevant"),
+                    "scope_reason": scope_reason,
+                    "siyuan_path": self._get_siyuan_path(p)
+                })
+                skipped_due_to_scope += 1
+
+        if target_type == "siyuan" and max_siyuan_notes > 0 and len(temp_papers) > max_siyuan_notes:
+            prio_map = {"High": 0, "Medium": 1, "Low": 2}
+            temp_papers.sort(key=lambda x: (
+                0 if x[0].get("manual_selected") == 1 or x[0].get("include_in_siyuan") == 1 else 1,
+                prio_map.get(x[0].get("priority", "Medium"), 1),
+                -x[0].get("confidence", 0.0)
+            ))
+            
+            for p, reason in temp_papers[:max_siyuan_notes]:
+                sync_papers.append(p)
+                plan_actually_synced.append({
+                    "title": p.get("title", ""),
+                    "priority": p.get("priority", "Medium"),
+                    "relevance_level": p.get("relevance_level", "D_Irrelevant"),
+                    "scope_reason": reason,
+                    "siyuan_path": self._get_siyuan_path(p)
+                })
+            
+            for p, reason in temp_papers[max_siyuan_notes:]:
+                plan_skipped_limit.append({
+                    "title": p.get("title", ""),
+                    "priority": p.get("priority", "Medium"),
+                    "relevance_level": p.get("relevance_level", "D_Irrelevant"),
+                    "scope_reason": f"exceeded max_siyuan_notes limit ({max_siyuan_notes})",
+                    "siyuan_path": self._get_siyuan_path(p)
+                })
+                skipped_due_to_limit += 1
+        else:
+            for p, reason in temp_papers:
+                sync_papers.append(p)
+                plan_actually_synced.append({
+                    "title": p.get("title", ""),
+                    "priority": p.get("priority", "Medium"),
+                    "relevance_level": p.get("relevance_level", "D_Irrelevant"),
+                    "scope_reason": reason,
+                    "siyuan_path": self._get_siyuan_path(p)
+                })
+
+        selected_scope_empty = (siyuan_scope == "selected" and len(sync_papers) == 0)
+        
+        metrics["core_posttraining"] = sum(1 for p in papers if p.get("relevance_level") == "A_Core_PostTraining" or p.get("is_core_posttraining") == 1)
+        metrics["selected_for_siyuan"] = len(sync_papers)
+        metrics["skipped_due_to_scope"] = skipped_due_to_scope
+        metrics["skipped_due_to_max_limit"] = skipped_due_to_limit
+        metrics["plan_actually_synced"] = plan_actually_synced
+        metrics["plan_skipped_scope"] = plan_skipped_scope
+        metrics["plan_skipped_limit"] = plan_skipped_limit
+        metrics["selected_scope_empty"] = selected_scope_empty
+
+        # Pre-sync plan generation: write data/reports/siyuan_sync_plan_{venue}_{year}.md
+        warning_notice = ""
+        if siyuan_scope == "all":
+            warning_notice = "> [!WARNING]\n> Syncing **ALL** papers to SiYuan. This can easily clutter your workspace!\n"
+        
+        tag_overrides_prompt = ""
+        if selected_scope_empty:
+            tag_overrides_prompt = "> [!IMPORTANT]\n> The `selected` scope matched **0** papers. No paper notes will be synced.\n> Please configure your overrides in `data/manual/tag_overrides.yaml` (e.g., set `manual_selected: true` or `include_in_siyuan: true` for the papers you want to sync) and re-run.\n"
+
+        sync_plan_md = f"""# SiYuan Sync Plan: {venue} {year}
+
+- **Sync Scope**: {siyuan_scope}
+- **Max Note Limit**: {max_siyuan_notes}
+- **Generated At**: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+- **Dry Run**: {"Enabled" if dry_run else "Disabled"}
+
+## Sync Summary
+- **Index Pages to Sync**: Reading_Queue_Full, 精选阅读队列, 阅读后思考索引, Group_Meeting 分享候选池, 知识回流建议
+- **Prompts to Sync**: Workflow templates in config/prompts/
+- **Paper Notes Planned to Sync**: {len(plan_actually_synced)}
+- **Paper Notes Skipped due to Scope**: {len(plan_skipped_scope)}
+- **Paper Notes Skipped due to Limit**: {len(plan_skipped_limit)}
+
+{warning_notice}
+{tag_overrides_prompt}
+
+## Actually Synced Paper Notes
+{self._build_markdown_table(plan_actually_synced)}
+
+## Skipped Due to Scope
+{self._build_markdown_table(plan_skipped_scope)}
+
+## Skipped Due to Max Limit
+{self._build_markdown_table(plan_skipped_limit)}
+"""
+        plan_dir = "data/reports"
+        os.makedirs(plan_dir, exist_ok=True)
+        plan_path = os.path.join(plan_dir, f"siyuan_sync_plan_{venue.lower()}_{year}.md")
+        with open(plan_path, "w", encoding="utf-8") as f:
+            f.write(sync_plan_md)
+        logger.info(f"[+] Sync plan saved to {plan_path}")
 
         # 1. Sync Report
         if note_type in ["report", "all"]:
@@ -392,7 +589,7 @@ class PostTrainRadarApp:
                 metrics["failed_count"] += 1
 
         # 2. Sync Reading Notes and Share Briefs
-        for p in relevant_papers:
+        for p in sync_papers:
             if note_type in ["reading_notes", "all"]:
                 note_md = self.note_gen.generate(p, overwrite=overwrite)
                 success = exporter.export_paper_note(p, note_md, overwrite=overwrite)
@@ -409,12 +606,24 @@ class PostTrainRadarApp:
                             sync_mode=sync_mode
                         )
                     metrics["sync_count"] += 1
+                    if target_type == "siyuan":
+                        metrics["actually_synced_to_siyuan"] += 1
                 else:
                     metrics["failed_count"] += 1
 
             if note_type in ["share_briefs", "all"]:
-                # Generates for High & Medium priority (confidence >= 0.65)
-                if p.get("confidence", 0.0) >= 0.65 or p.get("priority") in ["High", "Medium"]:
+                is_worth_sharing = (p.get("share_status") == "WorthSharing" or (p.get("share_status") and "WorthSharing" in p.get("share_status")))
+                is_include_in_share_pool = (p.get("include_in_share_pool") == 1)
+                is_high_and_core = (p.get("priority") == "High" and (p.get("relevance_level") == "A_Core_PostTraining" or p.get("is_core_posttraining") == 1))
+                is_manual_selected_or_siyuan = (p.get("include_in_siyuan") == 1 or p.get("manual_selected") == 1 or p.get("include_in_reading_queue") == 1)
+                
+                # Check relevance level D_Irrelevant constraint for worth_sharing / sharing pool
+                if p.get("relevance_level") == "D_Irrelevant":
+                    should_gen = (p.get("manual_selected") == 1)
+                else:
+                    should_gen = (is_worth_sharing or is_include_in_share_pool or is_high_and_core or is_manual_selected_or_siyuan)
+                
+                if should_gen:
                     share_md = self.share_gen.generate(p)
                     success = exporter.export_share_brief(p, share_md, overwrite=overwrite)
                     if success:
@@ -451,8 +660,6 @@ class PostTrainRadarApp:
             # Generate suggestions
             backflow = KnowledgeBackflow("data")
             backflow_res = backflow.run(papers, patch_scope=patch_scope)
-            
-            # Read compiled suggestions md
             sug_path = backflow_res["suggestions_path"]
             if os.path.exists(sug_path):
                 with open(sug_path, "r", encoding="utf-8") as f:
@@ -479,7 +686,7 @@ class PostTrainRadarApp:
                     content = f.read()
                 exporter.export_workflow_prompts(prompt_name, content, overwrite)
 
-    def run_pipeline(self, venue: str, year: int, source_type: str = "openreview", target_exporter: str = "markdown", overwrite: bool = False, dry_run: bool = False, patch_scope: str = "high"):
+    def run_pipeline(self, venue: str, year: int, source_type: str = "openreview", target_exporter: str = "markdown", overwrite: bool = False, dry_run: bool = False, siyuan_scope: str = "selected", max_siyuan_notes: int = 30, patch_scope: str = "selected", confirm_all_sync: bool = False):
         """
         Executes the entire end-to-end flow.
         """
@@ -498,7 +705,7 @@ class PostTrainRadarApp:
         logger.addHandler(fh)
         logger.addHandler(ch)
 
-        logger.info(f"=== Starting PostTrain Radar Pipeline (v0.1.1) for {venue} {year} ===")
+        logger.info(f"=== Starting PostTrain Radar Pipeline (v0.1.3) for {venue} {year} ===")
         if dry_run:
             logger.info("[!] DRY RUN ENABLED - No writes will be committed.")
 
@@ -517,7 +724,12 @@ class PostTrainRadarApp:
 
         # 4. Sync
         logger.info(f"[4/4] Syncing metadata & notes (Target: {target_exporter}, Overwrite: {overwrite})...")
-        sync_metrics = self.run_sync(venue, year, target_exporter, note_type="all", overwrite=overwrite, dry_run=dry_run, patch_scope=patch_scope)
+        sync_metrics = self.run_sync(
+            venue, year, target_exporter, 
+            note_type="all", overwrite=overwrite, dry_run=dry_run, 
+            siyuan_scope=siyuan_scope, max_siyuan_notes=max_siyuan_notes, 
+            patch_scope=patch_scope, confirm_all_sync=confirm_all_sync
+        )
 
         # 5. Write consolidated Run Summary Report
         # Re-fetch updated papers from database to count relevance levels and priorities correctly
@@ -551,6 +763,19 @@ class PostTrainRadarApp:
             if is_a_core or is_high or is_manual or is_worth:
                 selected_reading_count += 1
 
+        warning_notice = ""
+        if siyuan_scope == "all":
+            warning_notice = "> [!WARNING]\n> Syncing **ALL** papers to SiYuan. This can easily clutter your workspace!\n"
+        
+        tag_overrides_prompt = ""
+        selected_scope_empty = sync_metrics.get("selected_scope_empty", False)
+        if selected_scope_empty:
+            tag_overrides_prompt = "> [!IMPORTANT]\n> The `selected` scope matched **0** papers. No paper notes will be synced.\n> Please configure your overrides in `data/manual/tag_overrides.yaml` (e.g., set `manual_selected: true` or `include_in_siyuan: true` for the papers you want to sync) and re-run.\n"
+
+        plan_actually_synced = sync_metrics.get("plan_actually_synced", [])
+        plan_skipped_scope = sync_metrics.get("plan_skipped_scope", [])
+        plan_skipped_limit = sync_metrics.get("plan_skipped_limit", [])
+
         summary_md = f"""# PostTrain Radar Run Summary: {venue} {year}
 
 - **Timestamp**: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
@@ -575,10 +800,34 @@ class PostTrainRadarApp:
 - **High Priority Count**: {high_prio_count}
 - **Selected Reading Queue Count**: {selected_reading_count}
 
+{warning_notice}
+{tag_overrides_prompt}
+
 ## Notes Sync Metrics (Target: {target_exporter})
 - **Synced / Exported Documents**: {sync_metrics["sync_count"]}
 - **Skipped Documents**: {sync_metrics["skipped_count"]}
 - **Failed Transfers**: {sync_metrics["failed_count"]}
+
+## SiYuan Selective Sync V3 Metrics
+- **Total Papers**: {total_count}
+- **Candidates**: {candidate_count}
+- **Relevant**: {relevant_count}
+- **Core Post-Training**: {sync_metrics.get("core_posttraining", 0)}
+- **Selected for SiYuan**: {sync_metrics.get("selected_for_siyuan", 0)}
+- **Actually Synced to SiYuan**: {sync_metrics.get("actually_synced_to_siyuan", 0)}
+- **Skipped due to Scope**: {sync_metrics.get("skipped_due_to_scope", 0)}
+- **Skipped due to Max Limit**: {sync_metrics.get("skipped_due_to_max_limit", 0)}
+- **Archived Count (from cleanup)**: 0 (Run scripts/cleanup_siyuan.py to archive)
+- **Cleanup Suggestions**: Run `python scripts/cleanup_siyuan.py --venue {venue} --year {year} --mode archive` to archive unselected preprints from your workspace.
+
+## Actually Synced Paper Notes
+{self._build_markdown_table(plan_actually_synced)}
+
+## Skipped Due to Scope
+{self._build_markdown_table(plan_skipped_scope)}
+
+## Skipped Due to Max Limit
+{self._build_markdown_table(plan_skipped_limit)}
 """
         summary_dir = "data/reports"
         os.makedirs(summary_dir, exist_ok=True)

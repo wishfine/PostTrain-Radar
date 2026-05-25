@@ -46,6 +46,12 @@ class DatabaseManager:
         if "include_in_share_pool" not in tags_cols:
             self.conn.execute("ALTER TABLE paper_tags ADD COLUMN include_in_share_pool INTEGER DEFAULT 0")
             self.conn.commit()
+        if "include_in_siyuan" not in tags_cols:
+            self.conn.execute("ALTER TABLE paper_tags ADD COLUMN include_in_siyuan INTEGER DEFAULT 0")
+            self.conn.commit()
+        if "manual_selected" not in tags_cols:
+            self.conn.execute("ALTER TABLE paper_tags ADD COLUMN manual_selected INTEGER DEFAULT 0")
+            self.conn.commit()
         if "reviewer_comment" not in tags_cols:
             self.conn.execute("ALTER TABLE paper_tags ADD COLUMN reviewer_comment TEXT")
             self.conn.commit()
@@ -106,6 +112,8 @@ class DatabaseManager:
                 include_in_reading_queue INTEGER DEFAULT 0,
                 include_in_knowledge_patches INTEGER DEFAULT 0,
                 include_in_share_pool INTEGER DEFAULT 0,
+                include_in_siyuan INTEGER DEFAULT 0,
+                manual_selected INTEGER DEFAULT 0,
                 reviewer_comment TEXT,
                 FOREIGN KEY(paper_id) REFERENCES papers(id)
             );
@@ -246,6 +254,8 @@ class DatabaseManager:
                     include_in_reading_queue = COALESCE(?, include_in_reading_queue),
                     include_in_knowledge_patches = COALESCE(?, include_in_knowledge_patches),
                     include_in_share_pool = COALESCE(?, include_in_share_pool),
+                    include_in_siyuan = COALESCE(?, include_in_siyuan),
+                    manual_selected = COALESCE(?, manual_selected),
                     reviewer_comment = COALESCE(?, reviewer_comment)
                 WHERE id = ?
             """, (
@@ -269,6 +279,8 @@ class DatabaseManager:
                 tag_data.get("include_in_reading_queue"),
                 tag_data.get("include_in_knowledge_patches"),
                 tag_data.get("include_in_share_pool"),
+                tag_data.get("include_in_siyuan"),
+                tag_data.get("manual_selected"),
                 tag_data.get("reviewer_comment"),
                 tag_id
             ))
@@ -279,8 +291,8 @@ class DatabaseManager:
                     problem_tags, keywords_matched, confidence, reason, classified_at,
                     reading_status, priority, share_status, my_rating, next_action, matched_evidence,
                     relevance_level, is_core_posttraining, include_in_reading_queue,
-                    include_in_knowledge_patches, include_in_share_pool, reviewer_comment
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    include_in_knowledge_patches, include_in_share_pool, include_in_siyuan, manual_selected, reviewer_comment
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 paper_id,
                 tag_data.get("is_candidate", 0),
@@ -303,6 +315,8 @@ class DatabaseManager:
                 tag_data.get("include_in_reading_queue", 0),
                 tag_data.get("include_in_knowledge_patches", 0),
                 tag_data.get("include_in_share_pool", 0),
+                tag_data.get("include_in_siyuan", 0),
+                tag_data.get("manual_selected", 0),
                 tag_data.get("reviewer_comment", "")
             ))
         self.conn.commit()
@@ -332,7 +346,7 @@ class DatabaseManager:
                    t.problem_tags, t.keywords_matched, t.confidence, t.reason, t.classified_at,
                    t.reading_status, t.priority, t.share_status, t.my_rating, t.next_action,
                    t.matched_evidence, t.relevance_level, t.is_core_posttraining, t.include_in_reading_queue,
-                   t.include_in_knowledge_patches, t.include_in_share_pool, t.reviewer_comment
+                   t.include_in_knowledge_patches, t.include_in_share_pool, t.include_in_siyuan, t.manual_selected, t.reviewer_comment
             FROM papers p
             LEFT JOIN paper_tags t ON p.id = t.paper_id
         """

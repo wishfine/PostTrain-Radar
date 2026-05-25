@@ -254,6 +254,8 @@ class RuleClassifier(BaseClassifier):
             "include_in_reading_queue": 0,
             "include_in_knowledge_patches": 0,
             "include_in_share_pool": 0,
+            "include_in_siyuan": 0,
+            "manual_selected": 0,
             "reviewer_comment": ""
         }
 
@@ -278,9 +280,12 @@ class RuleClassifier(BaseClassifier):
                 res["is_core_posttraining"] = 1 if override["is_core_posttraining"] else 0
             if "is_relevant" in override:
                 res["is_relevant"] = 1 if override["is_relevant"] else 0
-            for extra in ["include_in_reading_queue", "include_in_knowledge_patches", "include_in_share_pool", "reviewer_comment"]:
+            for extra in ["include_in_reading_queue", "include_in_knowledge_patches", "include_in_share_pool", "include_in_siyuan", "manual_selected", "reviewer_comment"]:
                 if extra in override:
-                    res[extra] = override[extra]
+                    val = override[extra]
+                    if isinstance(val, bool):
+                        val = 1 if val else 0
+                    res[extra] = val
 
         return res
 

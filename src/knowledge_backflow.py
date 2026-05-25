@@ -17,14 +17,18 @@ class KnowledgeBackflow:
                 continue
             
             is_a_core = (p.get("relevance_level") == "A_Core_PostTraining" or p.get("is_core_posttraining") == 1)
-            is_manual_selected = (p.get("include_in_knowledge_patches") == 1)
+            is_manual_selected = (p.get("include_in_knowledge_patches") == 1 or p.get("include_in_siyuan") == 1)
             is_high_prio = (p.get("priority") == "High")
+            is_worth_sharing = (p.get("share_status") == "WorthSharing" or (p.get("share_status") and "WorthSharing" in p.get("share_status")))
             
-            if patch_scope == "high":
-                if is_a_core or is_manual_selected:
+            if patch_scope == "selected":
+                if is_manual_selected:
                     relevant_papers.append(p)
-            elif patch_scope == "selected":
-                if is_a_core or is_high_prio or is_manual_selected:
+            elif patch_scope == "high":
+                if is_manual_selected or is_high_prio or is_a_core or is_worth_sharing:
+                    relevant_papers.append(p)
+            elif patch_scope == "core":
+                if is_manual_selected or is_a_core:
                     relevant_papers.append(p)
             elif patch_scope == "all":
                 relevant_papers.append(p)

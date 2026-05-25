@@ -370,15 +370,15 @@ class TestIntegration(unittest.TestCase):
             }
         ]
         
-        # High scope (Core only)
-        res_high = backflow.run(papers, patch_scope="high")
-        self.assertEqual(res_high["patches_count"], 2) # Topics: LLM, Methods: DPO
+        # Core scope (Core only)
+        res_core = backflow.run(papers, patch_scope="core")
+        self.assertEqual(res_core["patches_count"], 2) # Topics: LLM, Methods: DPO
         
-        # Selected scope (Core + High priority)
+        # High scope (Core + High priority)
         shutil.rmtree(os.path.join(self.test_dir, "knowledge_patches"), ignore_errors=True)
-        res_sel = backflow.run(papers, patch_scope="selected")
-        # High priority related adds Methods: Evaluation/Benchmark, so patch count increases
-        self.assertTrue(res_sel["patches_count"] > 2)
+        res_high_scope = backflow.run(papers, patch_scope="high")
+        # High priority related adds Methods: SFT, so patch count increases
+        self.assertTrue(res_high_scope["patches_count"] > 2)
 
     def test_dry_run_simulation(self):
         # Test dry-run behavior where files are not written to output_dir
@@ -409,6 +409,184 @@ class TestIntegration(unittest.TestCase):
                 for f in filenames:
                     files.append(os.path.join(root, f))
             self.assertEqual(len(files), 0, f"Expected no files in dry run output directory, but found: {files}")
+
+    def test_siyuan_scope_filtering(self):
+        app = PostTrainRadarApp(db_path=self.db_path, overrides_path=self.overrides_path)
+        
+        # Insert papers with different properties
+        p1 = {
+            "title": "Selected Paper",
+            "title_norm": "selected paper",
+            "abstract": "We study SFT.",
+            "authors": ["Author 1"],
+            "venue": "ICLR",
+            "year": 2025,
+            "source": "openreview",
+            "source_id": "p1",
+            "status": "accepted"
+        }
+        p1_id = app.db.insert_or_update_paper(p1)
+        app.db.update_paper_tags(p1_id, {
+            "is_candidate": 1,
+            "is_relevant": 1,
+            "relevance_level": "A_Core_PostTraining",
+            "is_core_posttraining": 1,
+            "include_in_siyuan": 1
+        })
+        
+        p2 = {
+            "title": "High Core Paper",
+            "title_norm": "high core paper",
+            "abstract": "We study RLHF.",
+            "authors": ["Author 2"],
+            "venue": "ICLR",
+            "year": 2025,
+            "source": "openreview",
+            "source_id": "p2",
+            "status": "accepted"
+        }
+        p2_id = app.db.insert_or_update_paper(p2)
+        app.db.update_paper_tags(p2_id, {
+            "is_candidate": 1,
+            "is_relevant": 1,
+            "relevance_level": "A_Core_PostTraining",
+            "is_core_posttraining": 1,
+            "priority": "High"
+        })
+        
+        p3 = {
+            "title": "Irrelevant Worth Sharing",
+            "title_norm": "irrelevant worth sharing",
+            "abstract": "Relational databases.",
+            "authors": ["Author 3"],
+            "venue": "ICLR",
+            "year": 2025,
+            "source": "openreview",
+            "source_id": "p3",
+            "status": "accepted"
+        }
+        p3_id = app.db.insert_or_update_paper(p3)
+        app.db.update_paper_tags(p3_id, {
+            "is_candidate": 1,
+            "is_relevant": 1,
+            "relevance_level": "D_Irrelevant",
+            "share_status": "WorthSharing"
+        })
+        
+        p4 = {
+            "title": "Irrelevant Worth Sharing Manual Selected",
+            "title_norm": "irrelevant worth sharing manual selected",
+            "abstract": "Relational databases index.",
+            "authors": ["Author 4"],
+            "venue": "ICLR",
+            "year": 2025,
+            "source": "openreview",
+            "source_id": "p4",
+            "status": "accepted"
+        }
+        p4_id = app.db.insert_or_update_paper(p4)
+        app.db.update_paper_tags(p4_id, {
+            "is_candidate": 1,
+            "is_relevant": 1,
+            "relevance_level": "D_Irrelevant",
+            "share_status": "WorthSharing",
+            "manual_selected": 1
+        })
+        
+        # Test selected scope
+        metrics = app.run_sync(
+            venue="ICLR", year=2025, target_type="siyuan",
+            siyuan_scope="selected", max_siyuan_notes=0, dry_run=True
+        )
+        plan_synced = [p["title"] for p in metrics["plan_actually_synced"]]
+        self.assertIn("Selected Paper", plan_synced)
+        self.assertNotIn("High Core Paper", plan_synced)
+        
+        # Test high scope
+        metrics_high = app.run_sync(
+            venue="ICLR", year=2025, target_type="siyuan",
+            siyuan_scope="high", max_siyuan_notes=0, dry_run=True
+        )
+        plan_synced_high = [p["title"] for p in metrics_high["plan_actually_synced"]]
+        self.assertIn("Selected Paper", plan_synced_high)
+        self.assertIn("High Core Paper", plan_synced_high)
+        
+        # Test worth_sharing scope
+        metrics_ws = app.run_sync(
+            venue="ICLR", year=2025, target_type="siyuan",
+            siyuan_scope="worth_sharing", max_siyuan_notes=0, dry_run=True
+        )
+        plan_synced_ws = [p["title"] for p in metrics_ws["plan_actually_synced"]]
+        self.assertIn("Selected Paper", plan_synced_ws)
+        self.assertNotIn("Irrelevant Worth Sharing", plan_synced_ws)
+        self.assertIn("Irrelevant Worth Sharing Manual Selected", plan_synced_ws)
+        
+        # Test index_only scope
+        metrics_index = app.run_sync(
+            venue="ICLR", year=2025, target_type="siyuan",
+            siyuan_scope="index_only", max_siyuan_notes=0, dry_run=True
+        )
+        self.assertEqual(len(metrics_index["plan_actually_synced"]), 0)
+        self.assertEqual(metrics_index["skipped_due_to_scope"], 4)
+
+    def test_max_siyuan_notes_limit(self):
+        app = PostTrainRadarApp(db_path=self.db_path, overrides_path=self.overrides_path)
+        
+        # Insert papers
+        p1 = {
+            "title": "Paper 1", "title_norm": "paper 1", "abstract": "A", "venue": "ICLR", "year": 2025, "source": "openreview", "source_id": "p1", "status": "accepted"
+        }
+        p1_id = app.db.insert_or_update_paper(p1)
+        app.db.update_paper_tags(p1_id, {"is_candidate": 1, "is_relevant": 1, "relevance_level": "A_Core_PostTraining", "priority": "Low"})
+        
+        p2 = {
+            "title": "Paper 2", "title_norm": "paper 2", "abstract": "B", "venue": "ICLR", "year": 2025, "source": "openreview", "source_id": "p2", "status": "accepted"
+        }
+        p2_id = app.db.insert_or_update_paper(p2)
+        app.db.update_paper_tags(p2_id, {"is_candidate": 1, "is_relevant": 1, "relevance_level": "A_Core_PostTraining", "priority": "High"})
+        
+        # Sync with max limit = 1 and scope = all
+        metrics = app.run_sync(
+            venue="ICLR", year=2025, target_type="siyuan",
+            siyuan_scope="all", max_siyuan_notes=1, dry_run=True, confirm_all_sync=True
+        )
+        
+        self.assertEqual(len(metrics["plan_actually_synced"]), 1)
+        self.assertEqual(len(metrics["plan_skipped_limit"]), 1)
+        self.assertEqual(metrics["plan_actually_synced"][0]["title"], "Paper 2")
+        self.assertEqual(metrics["plan_skipped_limit"][0]["title"], "Paper 1")
+
+    def test_cleanup_siyuan_logic(self):
+        from scripts.cleanup_siyuan import matches_keep_scope, has_human_content
+        
+        # Test matches_keep_scope logic
+        p_selected = {"include_in_siyuan": 1, "relevance_level": "B_Related_LLM_VLM_Training_or_Evaluation"}
+        self.assertTrue(matches_keep_scope(p_selected, "selected"))
+        
+        p_high_not_core = {"priority": "High", "relevance_level": "B_Related_LLM_VLM_Training_or_Evaluation"}
+        self.assertFalse(matches_keep_scope(p_high_not_core, "high"))
+        
+        p_high_core = {"priority": "High", "relevance_level": "A_Core_PostTraining"}
+        self.assertTrue(matches_keep_scope(p_high_core, "high"))
+        
+        # Test has_human_content detection
+        boilerplate_note = """# Paper Title
+## [My Reading Notes]
+<!-- START_MY_READING_NOTES -->
+> [!IMPORTANT]
+*人工阅读记录。任何自动同步工具均绝对禁止覆盖或清空此分区。*
+*   **阅读时间**: 
+*   **精读笔记**: 
+    *   (在此记录您的阅读细节、推导过程、关键公式或模型架构的独特理解)
+<!-- END_MY_READING_NOTES -->
+"""
+        self.assertFalse(has_human_content(boilerplate_note))
+        
+        user_edited_note = boilerplate_note.replace(
+            "(在此记录您的阅读细节、推导过程、关键公式或模型架构的独特理解)",
+            "We found this paper to be extremely novel."
+        )
+        self.assertTrue(has_human_content(user_edited_note))
 
 if __name__ == "__main__":
     unittest.main()
