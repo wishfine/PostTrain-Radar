@@ -33,6 +33,8 @@ class ShareGenerator:
 - Post-training Type: {post_train_str}
 - Problem Tags: {prob_tags_str}
 - Data Origin: {data_origin}
+- Relevance Level: {paper.get('relevance_level', 'D_Irrelevant')}
+- Core Post-Training: {"Yes" if paper.get('is_core_posttraining') else "No"}
 - URL: {paper.get('paper_url') or 'N/A'}
 - PDF: {paper.get('pdf_url') or 'N/A'}"""
 
@@ -50,8 +52,10 @@ class ShareGenerator:
         audience_str = "\n".join(audience_list)
 
         my_share_content = ""
+        my_sources_content = ""
         if existing_content:
             my_share_content = self.extract_section(existing_content, "<!-- START_MY_SHARE_DETAILS -->", "<!-- END_MY_SHARE_DETAILS -->")
+            my_sources_content = self.extract_section(existing_content, "<!-- START_SOURCES -->", "<!-- END_SOURCES -->")
 
         if not my_share_content:
             my_share_content = f"""## 📝 分享标题
@@ -93,6 +97,13 @@ class ShareGenerator:
      - 问题2：
      - 问题3："""
 
+        if not my_sources_content:
+            my_sources_content = f"""- **观点来源**: 
+- **论文来源**: [[{title}]]
+- **方法页来源**: 
+- **问题页来源**: 
+- **内部链接来源**: """
+
         share_brief = f"""# Paper Share Brief: {title}
 
 ## 1. Auto Metadata
@@ -104,5 +115,10 @@ class ShareGenerator:
 <!-- START_MY_SHARE_DETAILS -->
 {my_share_content}
 <!-- END_MY_SHARE_DETAILS -->
+
+## 3. Sources / 来源溯源
+<!-- START_SOURCES -->
+{my_sources_content}
+<!-- END_SOURCES -->
 """
         return share_brief

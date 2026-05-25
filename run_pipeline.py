@@ -42,6 +42,13 @@ def main():
         action="store_true",
         help="Run pipeline in simulation mode (no writes to filesystem/APIs/database runs)"
     )
+    parser.add_argument(
+        "--patch-scope",
+        type=str,
+        default="high",
+        choices=["high", "selected", "all"],
+        help="Scope of papers to generate knowledge patches for"
+    )
 
     args = parser.parse_args()
 
@@ -53,10 +60,14 @@ def main():
             source_type=args.source,
             target_exporter=args.sync_target,
             overwrite=args.overwrite,
-            dry_run=args.dry_run
+            dry_run=args.dry_run,
+            patch_scope=args.patch_scope
         )
     except Exception as e:
-        print(f"[!] Pipeline execution failed: {e}")
+        import traceback
+        import sys
+        print("[!] Pipeline execution failed:")
+        traceback.print_exc(file=sys.stdout)
         sys.exit(1)
 
 if __name__ == "__main__":

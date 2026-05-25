@@ -127,39 +127,54 @@ class SiYuanExporter(BaseExporter):
         if not self.notebook_id and not self.validate_notebook():
             return False
 
+        source = paper.get("source", "").lower()
+        status = paper.get("status", "").lower()
+        
         venue = safe_filename(paper.get("venue", "unknown"))
         year = paper.get("year", 2025)
         title = safe_filename(paper.get("title", "untitled"))
 
-        target_path = f"/01_Papers/{venue}_{year}/{title}"
+        # Enforce V3 Routing Rules
+        if source in ["openreview", "acl_anthology", "cvf_openaccess"] and status == "accepted":
+            target_path = f"/01_Papers/{venue}_{year}/{title}"
+        elif source == "arxiv":
+            target_path = f"/01_Papers/ArXiv_Preprints/{title}"
+        else:
+            target_path = f"/01_Papers/Manual_Import/{title}"
+
         doc_id, doc_path = self._find_doc_id_and_path(target_path)
 
-        action = "CREATE"
         if doc_id:
-            if not overwrite:
-                print(f"[-] SiYuan paper note '{title}' already exists. Action: SKIP.")
+            # Document already exists, update in-place using updateBlock
+            if not self.dry_run:
+                get_res = self._call_api("/api/export/exportMdContent", {"id": doc_id})
+                if get_res and get_res.get("code") == 0:
+                    old_content = get_res.get("data", {}).get("content", "")
+                    markdown_content = self.note_gen.generate(paper, old_content, overwrite=overwrite)
+                
+                update_res = self._call_api("/api/block/updateBlock", {
+                    "id": doc_id,
+                    "dataType": "markdown",
+                    "data": markdown_content
+                })
+                if update_res and update_res.get("code") == 0:
+                    print(f"[+] Updated paper note in place in SiYuan: {target_path} (ID: {doc_id})")
+                    paper["siyuan_doc_id"] = doc_id
+                    paper["siyuan_path"] = doc_path
+                    return True
+                else:
+                    print(f"[!] Failed to update paper note in SiYuan: {update_res}")
+                    return False
+            else:
+                print(f"[*] [DRY-RUN] Would UPDATE SiYuan paper note in place at path: {target_path} (ID: {doc_id})")
                 paper["siyuan_doc_id"] = doc_id
                 paper["siyuan_path"] = doc_path
                 return True
-            else:
-                action = "MERGE & UPDATE"
-                # Under dry run, just preview
-                if not self.dry_run:
-                    get_res = self._call_api("/api/export/exportMdContent", {"id": doc_id})
-                    if get_res and get_res.get("code") == 0:
-                        old_content = get_res.get("data", {}).get("content", "")
-                        markdown_content = self.note_gen.generate(paper, old_content)
-                    
-                    self._call_api("/api/filetree/removeDoc", {
-                        "notebook": self.notebook_id,
-                        "path": doc_path
-                    })
 
         if self.dry_run:
-            print(f"[*] [DRY-RUN] Would {action} SiYuan paper note at path: {target_path}")
-            # Mock details
-            paper["siyuan_doc_id"] = doc_id or "dry_run_mock_doc_id"
-            paper["siyuan_path"] = doc_path or f"{target_path}.sy"
+            print(f"[*] [DRY-RUN] Would CREATE SiYuan paper note at path: {target_path}")
+            paper["siyuan_doc_id"] = "dry_run_mock_doc_id"
+            paper["siyuan_path"] = f"{target_path}.sy"
             return True
 
         create_res = self._call_api("/api/filetree/createDocWithMd", {
@@ -183,33 +198,48 @@ class SiYuanExporter(BaseExporter):
         if not self.notebook_id and not self.validate_notebook():
             return False
 
+        source = paper.get("source", "").lower()
+        status = paper.get("status", "").lower()
+
         venue = safe_filename(paper.get("venue", "unknown"))
         year = paper.get("year", 2025)
         title = safe_filename(paper.get("title", "untitled"))
 
-        target_path = f"/05_Share/{venue}_{year}/{title}_Share_Brief"
+        # Mirror routing directory structure under 05_Share/
+        if source in ["openreview", "acl_anthology", "cvf_openaccess"] and status == "accepted":
+            target_path = f"/05_Share/{venue}_{year}/{title}_Share_Brief"
+        elif source == "arxiv":
+            target_path = f"/05_Share/ArXiv_Preprints/{title}_Share_Brief"
+        else:
+            target_path = f"/05_Share/Manual_Import/{title}_Share_Brief"
+
         doc_id, doc_path = self._find_doc_id_and_path(target_path)
 
-        action = "CREATE"
         if doc_id:
-            if not overwrite:
-                print(f"[-] SiYuan share brief '{title}' already exists. Action: SKIP.")
-                return True
+            # Document exists, update in-place using updateBlock
+            if not self.dry_run:
+                get_res = self._call_api("/api/export/exportMdContent", {"id": doc_id})
+                if get_res and get_res.get("code") == 0:
+                    old_content = get_res.get("data", {}).get("content", "")
+                    markdown_content = self.share_gen.generate(paper, old_content)
+                
+                update_res = self._call_api("/api/block/updateBlock", {
+                    "id": doc_id,
+                    "dataType": "markdown",
+                    "data": markdown_content
+                })
+                if update_res and update_res.get("code") == 0:
+                    print(f"[+] Updated share brief in place in SiYuan: {target_path} (ID: {doc_id})")
+                    return True
+                else:
+                    print(f"[!] Failed to update share brief in SiYuan: {update_res}")
+                    return False
             else:
-                action = "MERGE & UPDATE"
-                if not self.dry_run:
-                    get_res = self._call_api("/api/export/exportMdContent", {"id": doc_id})
-                    if get_res and get_res.get("code") == 0:
-                        old_content = get_res.get("data", {}).get("content", "")
-                        markdown_content = self.share_gen.generate(paper, old_content)
-                    
-                    self._call_api("/api/filetree/removeDoc", {
-                        "notebook": self.notebook_id,
-                        "path": doc_path
-                    })
+                print(f"[*] [DRY-RUN] Would UPDATE share brief in place in SiYuan: {target_path} (ID: {doc_id})")
+                return True
 
         if self.dry_run:
-            print(f"[*] [DRY-RUN] Would {action} SiYuan share brief at path: {target_path}")
+            print(f"[*] [DRY-RUN] Would CREATE SiYuan share brief at path: {target_path}")
             return True
 
         create_res = self._call_api("/api/filetree/createDocWithMd", {
@@ -233,21 +263,29 @@ class SiYuanExporter(BaseExporter):
         target_path = f"/00_Index/{report_name}"
         doc_id, doc_path = self._find_doc_id_and_path(target_path)
 
-        action = "CREATE"
         if doc_id:
             if not overwrite:
                 print(f"[-] SiYuan report '{report_name}' already exists. Action: SKIP.")
                 return True
             else:
-                action = "OVERWRITE"
                 if not self.dry_run:
-                    self._call_api("/api/filetree/removeDoc", {
-                        "notebook": self.notebook_id,
-                        "path": doc_path
+                    update_res = self._call_api("/api/block/updateBlock", {
+                        "id": doc_id,
+                        "dataType": "markdown",
+                        "data": markdown_content
                     })
+                    if update_res and update_res.get("code") == 0:
+                        print(f"[+] Updated report in place in SiYuan: {target_path} (ID: {doc_id})")
+                        return True
+                    else:
+                        print(f"[!] Failed to update report: {update_res}")
+                        return False
+                else:
+                    print(f"[*] [DRY-RUN] Would UPDATE SiYuan report in place at path: {target_path} (ID: {doc_id})")
+                    return True
 
         if self.dry_run:
-            print(f"[*] [DRY-RUN] Would {action} SiYuan report at path: {target_path}")
+            print(f"[*] [DRY-RUN] Would CREATE SiYuan report at path: {target_path}")
             return True
 
         create_res = self._call_api("/api/filetree/createDocWithMd", {
@@ -265,26 +303,29 @@ class SiYuanExporter(BaseExporter):
 
     def export_report_at_path(self, target_path: str, markdown_content: str, overwrite: bool = False) -> bool:
         """
-        Special helper to write report at exact path (for Reading Queue indexing).
+        Special helper to write report at exact path.
         """
         if not self.notebook_id and not self.validate_notebook():
             return False
 
         doc_id, doc_path = self._find_doc_id_and_path(target_path)
-        action = "CREATE"
         if doc_id:
             if not overwrite:
                 return True
             else:
-                action = "OVERWRITE"
                 if not self.dry_run:
-                    self._call_api("/api/filetree/removeDoc", {
-                        "notebook": self.notebook_id,
-                        "path": doc_path
+                    update_res = self._call_api("/api/block/updateBlock", {
+                        "id": doc_id,
+                        "dataType": "markdown",
+                        "data": markdown_content
                     })
+                    return update_res and update_res.get("code") == 0
+                else:
+                    print(f"[*] [DRY-RUN] Would UPDATE SiYuan document in place at path: {target_path} (ID: {doc_id})")
+                    return True
 
         if self.dry_run:
-            print(f"[*] [DRY-RUN] Would {action} SiYuan document at path: {target_path}")
+            print(f"[*] [DRY-RUN] Would CREATE SiYuan document at path: {target_path}")
             return True
 
         create_res = self._call_api("/api/filetree/createDocWithMd", {
@@ -302,18 +343,24 @@ class SiYuanExporter(BaseExporter):
         target_path = f"/06_Workflows/Prompts/{prompt_name}"
         doc_id, doc_path = self._find_doc_id_and_path(target_path)
 
-        if doc_id and not overwrite:
-            return True
+        if doc_id:
+            if not overwrite:
+                return True
+            else:
+                if not self.dry_run:
+                    update_res = self._call_api("/api/block/updateBlock", {
+                        "id": doc_id,
+                        "dataType": "markdown",
+                        "data": markdown_content
+                    })
+                    return update_res and update_res.get("code") == 0
+                else:
+                    print(f"[*] [DRY-RUN] Would UPDATE workflow prompt template in place at path: {target_path} (ID: {doc_id})")
+                    return True
 
         if self.dry_run:
-            print(f"[*] [DRY-RUN] Would sync workflow prompt to SiYuan at path: {target_path}")
+            print(f"[*] [DRY-RUN] Would CREATE workflow prompt to SiYuan at path: {target_path}")
             return True
-
-        if doc_id and not self.dry_run:
-            self._call_api("/api/filetree/removeDoc", {
-                "notebook": self.notebook_id,
-                "path": doc_path
-            })
 
         create_res = self._call_api("/api/filetree/createDocWithMd", {
             "notebook": self.notebook_id,

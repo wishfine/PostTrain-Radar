@@ -5,13 +5,29 @@ class KnowledgeBackflow:
     def __init__(self, output_dir="data"):
         self.output_dir = output_dir
 
-    def run(self, papers: list) -> dict:
+    def run(self, papers: list, patch_scope: str = "high") -> dict:
         """
         Analyzes the list of papers and generates:
         1. 00_Index/知识回流建议.md
         2. data/knowledge_patches/
         """
-        relevant_papers = [p for p in papers if p.get("is_relevant")]
+        relevant_papers = []
+        for p in papers:
+            if not p.get("is_relevant"):
+                continue
+            
+            is_a_core = (p.get("relevance_level") == "A_Core_PostTraining" or p.get("is_core_posttraining") == 1)
+            is_manual_selected = (p.get("include_in_knowledge_patches") == 1)
+            is_high_prio = (p.get("priority") == "High")
+            
+            if patch_scope == "high":
+                if is_a_core or is_manual_selected:
+                    relevant_papers.append(p)
+            elif patch_scope == "selected":
+                if is_a_core or is_high_prio or is_manual_selected:
+                    relevant_papers.append(p)
+            elif patch_scope == "all":
+                relevant_papers.append(p)
         
         suggestions = []
         suggestions.append("# 🧭 知识回流建议 (Knowledge Backflow Suggestions)")

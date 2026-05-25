@@ -19,11 +19,35 @@ class DatabaseManager:
         if "data_origin" not in papers_cols:
             self.conn.execute("ALTER TABLE papers ADD COLUMN data_origin TEXT DEFAULT 'openreview_api'")
             self.conn.commit()
+        if "siyuan_sync_time" not in papers_cols:
+            self.conn.execute("ALTER TABLE papers ADD COLUMN siyuan_sync_time TEXT")
+            self.conn.commit()
+        if "siyuan_sync_mode" not in papers_cols:
+            self.conn.execute("ALTER TABLE papers ADD COLUMN siyuan_sync_mode TEXT")
+            self.conn.commit()
 
         cursor.execute("PRAGMA table_info(paper_tags)")
         tags_cols = [row["name"] for row in cursor.fetchall()]
         if "matched_evidence" not in tags_cols:
             self.conn.execute("ALTER TABLE paper_tags ADD COLUMN matched_evidence TEXT")
+            self.conn.commit()
+        if "relevance_level" not in tags_cols:
+            self.conn.execute("ALTER TABLE paper_tags ADD COLUMN relevance_level TEXT")
+            self.conn.commit()
+        if "is_core_posttraining" not in tags_cols:
+            self.conn.execute("ALTER TABLE paper_tags ADD COLUMN is_core_posttraining INTEGER DEFAULT 0")
+            self.conn.commit()
+        if "include_in_reading_queue" not in tags_cols:
+            self.conn.execute("ALTER TABLE paper_tags ADD COLUMN include_in_reading_queue INTEGER DEFAULT 0")
+            self.conn.commit()
+        if "include_in_knowledge_patches" not in tags_cols:
+            self.conn.execute("ALTER TABLE paper_tags ADD COLUMN include_in_knowledge_patches INTEGER DEFAULT 0")
+            self.conn.commit()
+        if "include_in_share_pool" not in tags_cols:
+            self.conn.execute("ALTER TABLE paper_tags ADD COLUMN include_in_share_pool INTEGER DEFAULT 0")
+            self.conn.commit()
+        if "reviewer_comment" not in tags_cols:
+            self.conn.execute("ALTER TABLE paper_tags ADD COLUMN reviewer_comment TEXT")
             self.conn.commit()
 
     def create_tables(self):
@@ -51,6 +75,8 @@ class DatabaseManager:
                 siyuan_doc_id TEXT,
                 siyuan_path TEXT,
                 data_origin TEXT DEFAULT 'openreview_api',
+                siyuan_sync_time TEXT,
+                siyuan_sync_mode TEXT,
                 UNIQUE(source, source_id)
             );
             """)
@@ -75,6 +101,12 @@ class DatabaseManager:
                 my_rating TEXT,
                 next_action TEXT,
                 matched_evidence TEXT,
+                relevance_level TEXT,
+                is_core_posttraining INTEGER DEFAULT 0,
+                include_in_reading_queue INTEGER DEFAULT 0,
+                include_in_knowledge_patches INTEGER DEFAULT 0,
+                include_in_share_pool INTEGER DEFAULT 0,
+                reviewer_comment TEXT,
                 FOREIGN KEY(paper_id) REFERENCES papers(id)
             );
             """)
@@ -112,7 +144,6 @@ class DatabaseManager:
 
         if row:
             paper_id = row["id"]
-            first_seen_at = row["first_seen_at"]
             
             self.conn.execute("""
                 UPDATE papers SET
@@ -209,7 +240,13 @@ class DatabaseManager:
                     share_status = COALESCE(?, share_status),
                     my_rating = COALESCE(?, my_rating),
                     next_action = COALESCE(?, next_action),
-                    matched_evidence = ?
+                    matched_evidence = ?,
+                    relevance_level = COALESCE(?, relevance_level),
+                    is_core_posttraining = COALESCE(?, is_core_posttraining),
+                    include_in_reading_queue = COALESCE(?, include_in_reading_queue),
+                    include_in_knowledge_patches = COALESCE(?, include_in_knowledge_patches),
+                    include_in_share_pool = COALESCE(?, include_in_share_pool),
+                    reviewer_comment = COALESCE(?, reviewer_comment)
                 WHERE id = ?
             """, (
                 tag_data.get("is_candidate", 0),
@@ -227,6 +264,12 @@ class DatabaseManager:
                 tag_data.get("my_rating"),
                 tag_data.get("next_action"),
                 matched_evidence_str,
+                tag_data.get("relevance_level"),
+                tag_data.get("is_core_posttraining"),
+                tag_data.get("include_in_reading_queue"),
+                tag_data.get("include_in_knowledge_patches"),
+                tag_data.get("include_in_share_pool"),
+                tag_data.get("reviewer_comment"),
                 tag_id
             ))
         else:
@@ -234,8 +277,10 @@ class DatabaseManager:
                 INSERT INTO paper_tags (
                     paper_id, is_candidate, is_relevant, model_type, post_training_types,
                     problem_tags, keywords_matched, confidence, reason, classified_at,
-                    reading_status, priority, share_status, my_rating, next_action, matched_evidence
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    reading_status, priority, share_status, my_rating, next_action, matched_evidence,
+                    relevance_level, is_core_posttraining, include_in_reading_queue,
+                    include_in_knowledge_patches, include_in_share_pool, reviewer_comment
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 paper_id,
                 tag_data.get("is_candidate", 0),
@@ -252,7 +297,13 @@ class DatabaseManager:
                 tag_data.get("share_status", "Not Started"),
                 tag_data.get("my_rating"),
                 tag_data.get("next_action"),
-                matched_evidence_str
+                matched_evidence_str,
+                tag_data.get("relevance_level", "D_Irrelevant"),
+                tag_data.get("is_core_posttraining", 0),
+                tag_data.get("include_in_reading_queue", 0),
+                tag_data.get("include_in_knowledge_patches", 0),
+                tag_data.get("include_in_share_pool", 0),
+                tag_data.get("reviewer_comment", "")
             ))
         self.conn.commit()
 
@@ -280,7 +331,8 @@ class DatabaseManager:
             SELECT p.*, t.is_candidate, t.is_relevant, t.model_type, t.post_training_types,
                    t.problem_tags, t.keywords_matched, t.confidence, t.reason, t.classified_at,
                    t.reading_status, t.priority, t.share_status, t.my_rating, t.next_action,
-                   t.matched_evidence
+                   t.matched_evidence, t.relevance_level, t.is_core_posttraining, t.include_in_reading_queue,
+                   t.include_in_knowledge_patches, t.include_in_share_pool, t.reviewer_comment
             FROM papers p
             LEFT JOIN paper_tags t ON p.id = t.paper_id
         """
@@ -311,14 +363,14 @@ class DatabaseManager:
             results.append(item)
         return results
 
-    def update_siyuan_meta(self, paper_id, doc_id, doc_path):
+    def update_siyuan_meta(self, paper_id, doc_id, doc_path, sync_time=None, sync_mode=None):
         """
         Updates the SiYuan doc ID and path for a paper.
         """
         with self.conn:
             self.conn.execute(
-                "UPDATE papers SET siyuan_doc_id = ?, siyuan_path = ? WHERE id = ?",
-                (doc_id, doc_path, paper_id)
+                "UPDATE papers SET siyuan_doc_id = ?, siyuan_path = ?, siyuan_sync_time = ?, siyuan_sync_mode = ? WHERE id = ?",
+                (doc_id, doc_path, sync_time, sync_mode, paper_id)
             )
 
     def close(self):

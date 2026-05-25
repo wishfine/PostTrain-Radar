@@ -62,7 +62,10 @@ def main():
                 # Let's run a query joining the paper and tag info
                 cursor.execute("""
                     SELECT p.*, t.is_candidate, t.is_relevant, t.model_type, t.post_training_types,
-                           t.problem_tags, t.keywords_matched, t.confidence, t.reason as classification_reason
+                           t.problem_tags, t.keywords_matched, t.confidence, t.reason as classification_reason,
+                           t.relevance_level, t.is_core_posttraining, t.include_in_reading_queue,
+                           t.include_in_knowledge_patches, t.include_in_share_pool, t.reviewer_comment,
+                           t.priority, t.reading_status, t.share_status, t.my_rating, t.next_action
                     FROM papers p
                     JOIN paper_tags t ON p.id = t.paper_id
                     WHERE p.id = ?

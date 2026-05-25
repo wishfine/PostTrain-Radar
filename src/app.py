@@ -182,7 +182,7 @@ class PostTrainRadarApp:
         """
         Formats classified papers into a Reading Queue document.
         """
-        relevant_papers = [p for p in papers if p.get("is_relevant")]
+        relevant_papers = [p for p in papers if p.get("is_relevant") and p.get("reading_status", "Unread") in ["Unread", "Reading"]]
         
         high_prio = []
         med_prio = []
@@ -207,15 +207,15 @@ class PostTrainRadarApp:
             for p in paper_list:
                 methods = ", ".join(p.get("post_training_types", []))
                 lines.append(
-                    f"| {p.get('title')} | {p.get('venue')} {p.get('year')} | "
+                    f"| [[{p.get('title')}]] | {p.get('venue')} {p.get('year')} | "
                     f"{p.get('model_type')} | {methods} | {p.get('reading_status', 'Unread')} | "
                     f"{p.get('share_status', 'Not Started')} | {p.get('next_action') or 'N/A'} |"
                 )
             return "\n".join(lines) + "\n"
 
-        queue_md = f"""# 待读论文队列 (Reading Queue)
+        queue_md = f"""# 待读论文队列
 
-本页面由 PostTrain Radar 自动维护，按优先级展示论文。你可以在 `data/manual/tag_overrides.yaml` 中或者笔记软件中更新其阅读状态、分享状态与下一步计划。
+本页面由 PostTrain Radar 自动维护，按优先级展示未读/正在阅读的论文。你可以在笔记软件中或者在 `data/manual/tag_overrides.yaml` 中更新其阅读状态、分享状态与下一步计划。
 
 ## 🔴 高优先级 (High Priority)
 {make_table(high_prio)}
@@ -228,7 +228,143 @@ class PostTrainRadarApp:
 """
         return queue_md
 
-    def run_sync(self, venue: str, year: int, target_type: str, note_type: str = "all", overwrite: bool = False, dry_run: bool = False) -> dict:
+    def generate_reading_thoughts(self, papers: list) -> str:
+        """
+        Formats read papers into a Reading Thoughts Index.
+        """
+        read_papers = [p for p in papers if p.get("is_relevant") and p.get("reading_status") == "Read"]
+        
+        # Fallback: if no papers are marked Read, check if they are being read or have user ratings/comments
+        if not read_papers:
+            read_papers = [p for p in papers if p.get("is_relevant") and (p.get("my_rating") or p.get("next_action") or p.get("reading_status") == "Reading")]
+
+        lines = [
+            "# 阅读后思考索引",
+            "",
+            "本页面记录已读或精读论文的核心判断、个人理解与后续沉淀观点。",
+            "",
+            "| 论文名称 | 会议 | 阅读状态 | 个人评分 | 下一步行动 / 沉淀观点 |",
+            "| :--- | :--- | :---: | :---: | :--- |"
+        ]
+
+        if not read_papers:
+            lines.append("| *（暂无已读论文记录）* | | | | |")
+        else:
+            for p in read_papers:
+                title = p.get("title", "")
+                venue = p.get("venue", "")
+                year = p.get("year", 2025)
+                status = p.get("reading_status", "Read")
+                rating = p.get("my_rating") or "-"
+                next_action = p.get("next_action") or "无"
+                lines.append(f"| [[{title}]] | {venue} {year} | {status} | {rating} | {next_action} |")
+
+        return "\n".join(lines) + "\n"
+
+    def generate_share_pool(self, papers: list) -> str:
+        """
+        Formats papers suitable for sharing into a candidate pool.
+        """
+        share_papers = [
+            p for p in papers 
+            if p.get("is_relevant") and (
+                p.get("confidence", 0.0) >= 0.65 or 
+                p.get("priority") in ["High", "Medium"] or 
+                p.get("share_status") in ["Candidate", "To Share", "Shared"]
+            )
+        ]
+
+        lines = [
+            "# Group_Meeting 分享候选池",
+            "",
+            "本页面展示适合组会分享的论文候选及已生成的分享稿链接。",
+            "",
+            "| 论文名称 | 会议 | 后训练方向 | 推荐度 / 置信度 | 分享状态 | 分享稿链接 |",
+            "| :--- | :--- | :--- | :---: | :---: | :--- |"
+        ]
+
+        if not share_papers:
+            lines.append("| *（暂无分享候选）* | | | | | |")
+        else:
+            for p in share_papers:
+                title = p.get("title", "")
+                venue = p.get("venue", "")
+                year = p.get("year", 2025)
+                methods = ", ".join(p.get("post_training_types", []))
+                conf = p.get("confidence", 0.0)
+                status = p.get("share_status", "Not Started")
+                share_brief_link = f"[[{title}_Share_Brief]]"
+                lines.append(f"| [[{title}]] | {venue} {year} | {methods} | {conf:.2f} | {status} | {share_brief_link} |")
+
+        return "\n".join(lines) + "\n"
+
+    def generate_reading_queue_featured(self, papers: list) -> str:
+        """
+        Formats featured papers into a Reading Queue document.
+        Featured criteria: A_Core_PostTraining OR High priority OR manual override (include_in_reading_queue == 1) OR share_status == 'WorthSharing'.
+        Only shows papers with reading_status in ['Unread', 'Reading'].
+        """
+        featured_papers = []
+        for p in papers:
+            if not p.get("is_relevant"):
+                continue
+            status = p.get("reading_status", "Unread")
+            if status not in ["Unread", "Reading"]:
+                continue
+            
+            is_a_core = (p.get("relevance_level") == "A_Core_PostTraining" or p.get("is_core_posttraining") == 1)
+            is_high_prio = (p.get("priority") == "High")
+            is_manual_selected = (p.get("include_in_reading_queue") == 1)
+            is_worth_sharing = (p.get("share_status") == "WorthSharing" or (p.get("share_status") and "WorthSharing" in p.get("share_status")))
+            
+            if is_a_core or is_high_prio or is_manual_selected or is_worth_sharing:
+                featured_papers.append(p)
+                
+        high_prio = []
+        med_prio = []
+        low_prio = []
+
+        for p in featured_papers:
+            prio = p.get("priority", "Medium")
+            if prio == "High":
+                high_prio.append(p)
+            elif prio == "Medium":
+                med_prio.append(p)
+            else:
+                low_prio.append(p)
+
+        def make_table(paper_list):
+            if not paper_list:
+                return "*（暂无此类论文）*\n"
+            lines = [
+                "| 论文名称 | 会议 | 模型类型 | 后训练方向 | 阅读状态 | 分享状态 | 下一步行动 |",
+                "| :--- | :--- | :--- | :--- | :---: | :---: | :--- |"
+            ]
+            for p in paper_list:
+                methods = ", ".join(p.get("post_training_types", []))
+                lines.append(
+                    f"| [[{p.get('title')}]] | {p.get('venue')} {p.get('year')} | "
+                    f"{p.get('model_type')} | {methods} | {p.get('reading_status', 'Unread')} | "
+                    f"{p.get('share_status', 'Not Started')} | {p.get('next_action') or 'N/A'} |"
+                )
+            return "\n".join(lines) + "\n"
+
+        queue_md = f"""# 精选阅读队列
+        
+本页面由 PostTrain Radar 自动维护，按优先级展示精选后训练论文（包含 Core 级、高优先级或人工指定的优质论文）。你可以在笔记软件中或者在 `data/manual/tag_overrides.yaml` 中更新其阅读状态、分享状态与下一步计划。
+
+## 🔴 高优先级 (High Priority)
+{make_table(high_prio)}
+
+## 🟡 中优先级 (Medium Priority)
+{make_table(med_prio)}
+
+## 🟢 低优先级 (Low Priority)
+{make_table(low_prio)}
+"""
+        return queue_md
+
+    def run_sync(self, venue: str, year: int, target_type: str, note_type: str = "all", overwrite: bool = False, dry_run: bool = False, patch_scope: str = "high") -> dict:
         exporter = self.get_exporter(target_type, dry_run=dry_run)
         
         metrics = {
@@ -257,15 +393,21 @@ class PostTrainRadarApp:
 
         # 2. Sync Reading Notes and Share Briefs
         for p in relevant_papers:
-            # We track if files exist to determine skip count
-            # However exporter prints skips directly. We will approximate or log based on exporter return.
             if note_type in ["reading_notes", "all"]:
-                note_md = self.note_gen.generate(p)
+                note_md = self.note_gen.generate(p, overwrite=overwrite)
                 success = exporter.export_paper_note(p, note_md, overwrite=overwrite)
                 if success:
                     # Check if exporter returned a siyuan_doc_id
                     if not dry_run and target_type == "siyuan" and "siyuan_doc_id" in p:
-                        self.db.update_siyuan_meta(p["id"], p["siyuan_doc_id"], p["siyuan_path"])
+                        sync_time = datetime.now().isoformat()
+                        sync_mode = "overwrite" if overwrite else "merge"
+                        self.db.update_siyuan_meta(
+                            p["id"], 
+                            p["siyuan_doc_id"], 
+                            p["siyuan_path"], 
+                            sync_time=sync_time, 
+                            sync_mode=sync_mode
+                        )
                     metrics["sync_count"] += 1
                 else:
                     metrics["failed_count"] += 1
@@ -282,15 +424,33 @@ class PostTrainRadarApp:
 
         # 3. Sync Reading Queue and Suggestions Index
         if note_type in ["all"]:
-            # Generate Reading Queue
+            # Generate Reading Queue (Full)
             queue_md = self.generate_reading_queue(papers)
-            success = exporter.export_report_at_path("/00_Index/Reading_Queue", queue_md, overwrite=True)
+            success = exporter.export_report_at_path("/00_Index/Reading_Queue_Full", queue_md, overwrite=True)
             if success:
+                metrics["sync_count"] += 1
+
+            # Generate Reading Queue (Featured)
+            queue_featured_md = self.generate_reading_queue_featured(papers)
+            success_featured = exporter.export_report_at_path("/00_Index/精选阅读队列", queue_featured_md, overwrite=True)
+            if success_featured:
+                metrics["sync_count"] += 1
+
+            # Generate Reading Thoughts Index
+            thoughts_md = self.generate_reading_thoughts(papers)
+            success_thoughts = exporter.export_report_at_path("/00_Index/阅读后思考索引", thoughts_md, overwrite=True)
+            if success_thoughts:
+                metrics["sync_count"] += 1
+
+            # Generate Group_Meeting Share Candidate Pool
+            share_pool_md = self.generate_share_pool(papers)
+            success_share_pool = exporter.export_report_at_path("/05_Share/Group_Meeting 分享候选池", share_pool_md, overwrite=True)
+            if success_share_pool:
                 metrics["sync_count"] += 1
 
             # Generate suggestions
             backflow = KnowledgeBackflow("data")
-            backflow_res = backflow.run(papers)
+            backflow_res = backflow.run(papers, patch_scope=patch_scope)
             
             # Read compiled suggestions md
             sug_path = backflow_res["suggestions_path"]
@@ -319,7 +479,7 @@ class PostTrainRadarApp:
                     content = f.read()
                 exporter.export_workflow_prompts(prompt_name, content, overwrite)
 
-    def run_pipeline(self, venue: str, year: int, source_type: str = "openreview", target_exporter: str = "markdown", overwrite: bool = False, dry_run: bool = False):
+    def run_pipeline(self, venue: str, year: int, source_type: str = "openreview", target_exporter: str = "markdown", overwrite: bool = False, dry_run: bool = False, patch_scope: str = "high"):
         """
         Executes the entire end-to-end flow.
         """
@@ -347,14 +507,6 @@ class PostTrainRadarApp:
         total_count = len(saved_ids)
         logger.info(f"[1/4] Collection completed. Standardized papers: {total_count}")
 
-        # Check fallback status
-        papers_db = self.db.get_classified_papers(venue, year)
-        fallback_enabled = any(p.get("data_origin") == "fallback_fixture" for p in papers_db)
-        
-        api_count = sum(1 for p in papers_db if p.get("data_origin") == "openreview_api")
-        fallback_count = sum(1 for p in papers_db if p.get("data_origin") == "fallback_fixture")
-        manual_count = sum(1 for p in papers_db if p.get("data_origin") == "manual_import")
-
         # 2. Filter
         candidate_count = self.run_filter(saved_ids)
         logger.info(f"[2/4] Keyword screening completed. Candidates: {candidate_count}")
@@ -365,9 +517,40 @@ class PostTrainRadarApp:
 
         # 4. Sync
         logger.info(f"[4/4] Syncing metadata & notes (Target: {target_exporter}, Overwrite: {overwrite})...")
-        sync_metrics = self.run_sync(venue, year, target_exporter, note_type="all", overwrite=overwrite, dry_run=dry_run)
+        sync_metrics = self.run_sync(venue, year, target_exporter, note_type="all", overwrite=overwrite, dry_run=dry_run, patch_scope=patch_scope)
 
         # 5. Write consolidated Run Summary Report
+        # Re-fetch updated papers from database to count relevance levels and priorities correctly
+        papers_db = self.db.get_classified_papers(venue, year)
+        fallback_enabled = any(p.get("data_origin") == "fallback_fixture" for p in papers_db)
+        
+        api_count = sum(1 for p in papers_db if p.get("data_origin") == "openreview_api")
+        fallback_count = sum(1 for p in papers_db if p.get("data_origin") == "fallback_fixture")
+        manual_count = sum(1 for p in papers_db if p.get("data_origin") == "manual_import")
+
+        core_count = sum(1 for p in papers_db if p.get("relevance_level") == "A_Core_PostTraining" or p.get("is_core_posttraining") == 1)
+        level_breakdown = {
+            "A_Core_PostTraining": sum(1 for p in papers_db if p.get("relevance_level") == "A_Core_PostTraining"),
+            "B_Related_LLM_VLM_Training_or_Evaluation": sum(1 for p in papers_db if p.get("relevance_level") == "B_Related_LLM_VLM_Training_or_Evaluation"),
+            "C_General_LLM_VLM_Not_PostTraining": sum(1 for p in papers_db if p.get("relevance_level") == "C_General_LLM_VLM_Not_PostTraining"),
+            "D_Irrelevant": sum(1 for p in papers_db if p.get("relevance_level") == "D_Irrelevant")
+        }
+        high_prio_count = sum(1 for p in papers_db if p.get("priority") == "High")
+        
+        selected_reading_count = 0
+        for p in papers_db:
+            if not p.get("is_relevant"):
+                continue
+            status = p.get("reading_status", "Unread")
+            if status not in ["Unread", "Reading"]:
+                continue
+            is_a_core = (p.get("relevance_level") == "A_Core_PostTraining" or p.get("is_core_posttraining") == 1)
+            is_high = (p.get("priority") == "High")
+            is_manual = (p.get("include_in_reading_queue") == 1)
+            is_worth = (p.get("share_status") == "WorthSharing" or (p.get("share_status") and "WorthSharing" in p.get("share_status")))
+            if is_a_core or is_high or is_manual or is_worth:
+                selected_reading_count += 1
+
         summary_md = f"""# PostTrain Radar Run Summary: {venue} {year}
 
 - **Timestamp**: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
@@ -383,6 +566,14 @@ class PostTrainRadarApp:
 - **Fallback Fixtures Triggered**: {"Yes" if fallback_enabled else "No"}
 - **Keywords Candidates Screened**: {candidate_count}
 - **Taxonomy Relevant Papers Identified**: {relevant_count}
+- **Core Post-Training Papers Identified**: {core_count}
+- **Relevance Level Breakdown**:
+  - `A_Core_PostTraining`: {level_breakdown["A_Core_PostTraining"]}
+  - `B_Related_LLM_VLM_Training_or_Evaluation`: {level_breakdown["B_Related_LLM_VLM_Training_or_Evaluation"]}
+  - `C_General_LLM_VLM_Not_PostTraining`: {level_breakdown["C_General_LLM_VLM_Not_PostTraining"]}
+  - `D_Irrelevant`: {level_breakdown["D_Irrelevant"]}
+- **High Priority Count**: {high_prio_count}
+- **Selected Reading Queue Count**: {selected_reading_count}
 
 ## Notes Sync Metrics (Target: {target_exporter})
 - **Synced / Exported Documents**: {sync_metrics["sync_count"]}

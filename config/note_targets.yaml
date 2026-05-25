@@ -6,7 +6,7 @@ siyuan:
   enabled: true
   api_url: "http://127.0.0.1:6806"
   token_env: "SIYUAN_TOKEN"
-  notebook_name: "PostTrain Radar"
+  notebook_name: "PostTrain_Radar"
   notebook_id: ""
   allow_create_missing_doc: true
   overwrite_existing: false
