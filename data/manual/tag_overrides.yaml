@@ -1,18 +1,52 @@
 # PostTrain Radar Manual Tag Overrides
-# You can override metadata parameters here. 
-# Match by normalized paper title (lower-case, alphanumeric only) or source ID.
-#
-# Examples:
-#
-# "direct preference optimization your language model is secretly a reward model":
-#   model_type: "LLM"
-#   priority: "High"
-#   reading_status: "Reading"
-#   post_training_types: ["DPO / Preference Optimization"]
-#   problem_tags: ["Length Bias"]
-#   share_status: "Drafted"
-#   next_action: "Review length bias mitigation strategies."
-#
-# "fdpo12345":
-#   priority: "High"
-#   reading_status: "Finished"
+cbttLtO94Q:
+  title: How to Evaluate Reward Models for RLHF
+  priority: High
+  reading_status: Unread
+  relevance_level: A_Core_PostTraining
+  manual_selected: true
+  include_in_siyuan: true
+  include_in_reading_queue: true
+  include_in_share_pool: true
+  reviewer_comment: Selected for closed-loop validation.
+SQnitDuow6:
+  title: 'Value-Incentivized Preference Optimization: A Unified Approach to Online
+    and Offline RLHF'
+  priority: High
+  reading_status: Unread
+  relevance_level: A_Core_PostTraining
+  manual_selected: true
+  include_in_siyuan: true
+  include_in_reading_queue: true
+  include_in_share_pool: true
+  reviewer_comment: Selected for closed-loop validation.
+44z7HL4mfX:
+  title: 'Instruct-SkillMix: A Powerful Pipeline for LLM Instruction Tuning'
+  priority: High
+  reading_status: Unread
+  relevance_level: A_Core_PostTraining
+  manual_selected: true
+  include_in_siyuan: true
+  include_in_reading_queue: true
+  include_in_share_pool: true
+  reviewer_comment: Selected for closed-loop validation.
+MnJzJ2gvuf:
+  title: 'MAVIS: Mathematical Visual Instruction Tuning with an Automatic Data Engine'
+  priority: High
+  reading_status: Unread
+  relevance_level: A_Core_PostTraining
+  manual_selected: true
+  include_in_siyuan: true
+  include_in_reading_queue: true
+  include_in_share_pool: true
+  reviewer_comment: Selected for closed-loop validation.
+dliIIodM6b:
+  title: Bootstrapping Language Models with DPO Implicit Rewards
+  priority: High
+  reading_status: Unread
+  relevance_level: A_Core_PostTraining
+  manual_selected: true
+  include_in_siyuan: true
+  include_in_reading_queue: true
+  include_in_share_pool: true
+  reviewer_comment: Selected for closed-loop validation.

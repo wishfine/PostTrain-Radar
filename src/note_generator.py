@@ -28,7 +28,7 @@ class NoteGenerator:
             if re.match(r"^>\s*\[\!.*?\]", stripped):
                 continue
             # Skip warning boilerplate lines
-            if stripped.startswith(">") and ("绝对禁止覆盖" in stripped or "自动更新不会覆盖" in stripped or "任何自动同步工具" in stripped):
+            if stripped.startswith(">") and ("绝对禁止覆盖" in stripped or "自动更新不会覆盖" in stripped or "任何自动同步工具" in stripped or "自动同步元数据" in stripped or "AI 预读总结" in stripped or "分类过滤依据" in stripped or "AI 纠错与修正" in stripped or "人工精读笔记" in stripped or "人工技术批判" in stripped or "知识提取" in stripped or "回流执行状态" in stripped or "分享价值决策" in stripped or "下一步行动" in stripped):
                 continue
             # Remove block quote leading marker inside callouts
             if stripped.startswith(">"):
