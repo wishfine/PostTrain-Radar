@@ -29,6 +29,31 @@ class ShareGenerator:
         return title.lower() in headers
 
     @staticmethod
+    def clean_migrated_content(text: str) -> str:
+        if not text:
+            return ""
+        # Remove HTML comment markers
+        text = re.sub(r"<!--\s*START_\w+\s*-->", "", text)
+        text = re.sub(r"<!--\s*END_\w+\s*-->", "", text)
+        
+        lines = text.splitlines()
+        cleaned_lines = []
+        for line in lines:
+            stripped = line.strip()
+            # Skip Obsidian callout headers
+            if re.match(r"^>\s*\[\!.*?\]", stripped):
+                continue
+            # Skip warning boilerplate lines
+            if stripped.startswith(">") and ("绝对禁止覆盖" in stripped or "自动更新不会覆盖" in stripped or "任何自动同步工具" in stripped):
+                continue
+            # Remove block quote leading marker inside callouts
+            if stripped.startswith(">"):
+                line = re.sub(r"^>\s?", "", line)
+            cleaned_lines.append(line)
+            
+        return "\n".join(cleaned_lines).strip()
+
+    @staticmethod
     def extract_section(content: str, header_title: str) -> str:
         """
         Robustly extracts section content by checking Markdown headers
@@ -104,6 +129,11 @@ class ShareGenerator:
         if existing_content:
             my_share_content = self.extract_section(existing_content, "My Share Content")
             my_sources_content = self.extract_section(existing_content, "Sources")
+            
+            if my_share_content is not None:
+                my_share_content = self.clean_migrated_content(my_share_content)
+            if my_sources_content is not None:
+                my_sources_content = self.clean_migrated_content(my_sources_content)
 
         if not my_share_content:
             my_share_content = f"""## 📝 分享标题

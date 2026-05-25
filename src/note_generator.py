@@ -13,6 +13,31 @@ def format_tag(text: str) -> str:
 
 class NoteGenerator:
     @staticmethod
+    def clean_migrated_content(text: str) -> str:
+        if not text:
+            return ""
+        # Remove HTML comment markers
+        text = re.sub(r"<!--\s*START_\w+\s*-->", "", text)
+        text = re.sub(r"<!--\s*END_\w+\s*-->", "", text)
+        
+        lines = text.splitlines()
+        cleaned_lines = []
+        for line in lines:
+            stripped = line.strip()
+            # Skip Obsidian callout headers
+            if re.match(r"^>\s*\[\!.*?\]", stripped):
+                continue
+            # Skip warning boilerplate lines
+            if stripped.startswith(">") and ("绝对禁止覆盖" in stripped or "自动更新不会覆盖" in stripped or "任何自动同步工具" in stripped):
+                continue
+            # Remove block quote leading marker inside callouts
+            if stripped.startswith(">"):
+                line = re.sub(r"^>\s?", "", line)
+            cleaned_lines.append(line)
+            
+        return "\n".join(cleaned_lines).strip()
+
+    @staticmethod
     def is_top_level_header(line: str) -> bool:
         line = line.strip()
         if not line.startswith("##"):
@@ -197,6 +222,18 @@ class NoteGenerator:
             old_backfeed = self.extract_section(existing_content, "Knowledge Backfeed Status")
             old_share = self.extract_section(existing_content, "Share Decision")
             old_next_action = self.extract_section(existing_content, "Next Action")
+
+            # Clean migrated content for all extracted sections
+            if old_metadata is not None: old_metadata = self.clean_migrated_content(old_metadata)
+            if old_ai_draft is not None: old_ai_draft = self.clean_migrated_content(old_ai_draft)
+            if old_evidence is not None: old_evidence = self.clean_migrated_content(old_evidence)
+            if old_review is not None: old_review = self.clean_migrated_content(old_review)
+            if old_notes is not None: old_notes = self.clean_migrated_content(old_notes)
+            if old_judgment is not None: old_judgment = self.clean_migrated_content(old_judgment)
+            if old_extraction is not None: old_extraction = self.clean_migrated_content(old_extraction)
+            if old_backfeed is not None: old_backfeed = self.clean_migrated_content(old_backfeed)
+            if old_share is not None: old_share = self.clean_migrated_content(old_share)
+            if old_next_action is not None: old_next_action = self.clean_migrated_content(old_next_action)
 
         # 3. Handle Safe Sync Override logic per section
 

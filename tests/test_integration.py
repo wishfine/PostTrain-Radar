@@ -210,6 +210,54 @@ class TestIntegration(unittest.TestCase):
         skipped_note = note_gen.generate(updated_paper, existing_content=bad_note)
         self.assertIsNone(skipped_note)
 
+        # Test old document format migration during merge
+        old_style_note = """# A Test Paper on DPO
+## [My Reading Notes]
+<!-- START_MY_READING_NOTES -->
+> [!IMPORTANT]
+> *人工阅读记录。任何自动同步工具均绝对禁止覆盖或清空此分区。*
+> *   **阅读时间**: 2026-05-25
+> *   **精读笔记**: 
+>     *   This is old notes.
+<!-- END_MY_READING_NOTES -->
+
+## [My Judgment]
+<!-- START_MY_JUDGMENT -->
+> [!IMPORTANT]
+> *人工思考与批判性判断。任何自动同步工具均绝对禁止覆盖或清空此分区。*
+> *   **论文盲点/局限性**: None
+> *   **实验设计局限**: None
+> *   **我的评价**: 
+>     *   Old judgment.
+<!-- END_MY_JUDGMENT -->
+
+## [AI Draft Review]
+<!-- START_AI_DRAFT_REVIEW -->
+> [!IMPORTANT]
+> *人工对 AI 生成草稿的审查记录，自动更新不会覆盖。*
+> *   **AI Draft 是否可信**: High
+> *   **错误点**: None
+<!-- END_AI_DRAFT_REVIEW -->
+
+## [Knowledge Backfeed Status]
+<!-- START_KNOWLEDGE_BACKFEED_STATUS -->
+*   [x] 已回流 Topic 页面
+<!-- END_KNOWLEDGE_BACKFEED_STATUS -->
+"""
+        migrated_note = note_gen.generate(updated_paper, existing_content=old_style_note)
+        self.assertIsNotNone(migrated_note)
+        self.assertNotIn("<!-- START_MY_READING_NOTES -->", migrated_note)
+        self.assertNotIn("<!-- END_MY_READING_NOTES -->", migrated_note)
+        self.assertNotIn("<!-- START_MY_JUDGMENT -->", migrated_note)
+        self.assertNotIn("> [!IMPORTANT]", migrated_note)
+        self.assertNotIn("人工阅读记录", migrated_note)
+        self.assertIn("## My Reading Notes", migrated_note)
+        self.assertNotIn("## [My Reading Notes]", migrated_note)
+        self.assertIn("This is old notes.", migrated_note)
+        self.assertIn("Old judgment.", migrated_note)
+        self.assertIn("*   **AI Draft 是否可信**: High", migrated_note)
+        self.assertNotIn("> *   **AI Draft 是否可信**", migrated_note)
+
         # Test Share Brief merges
         initial_share = share_gen.generate(paper)
         self.assertNotIn("<!-- START_MY_SHARE_DETAILS -->", initial_share)
