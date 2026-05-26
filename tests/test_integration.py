@@ -142,7 +142,7 @@ class TestIntegration(unittest.TestCase):
         # 3. Test preservation of human notes for NoteGenerator and ShareGenerator
         note_gen = NoteGenerator()
         share_gen = ShareGenerator()
-        
+
         paper = {
             "title": "A Test Paper on DPO",
             "venue": "ICLR",
@@ -169,106 +169,250 @@ class TestIntegration(unittest.TestCase):
                 ]
             }
         }
-        
-        # Generate initial note
+
+        # --- NEW DOC: no existing_content must generate successfully ---
         initial_note = note_gen.generate(paper)
+        self.assertIsNotNone(initial_note, "New doc generation should succeed with no existing_content")
+
+        # Clean headings: no emoji, no brackets, no HTML comments
         self.assertIn("## My Reading Notes", initial_note)
+        self.assertNotIn("## \U0001f4dd My Reading Notes", initial_note)
         self.assertNotIn("## [My Reading Notes]", initial_note)
-        self.assertNotIn("<!-- START_MY_READING_NOTES -->", initial_note)
-        
-        # Closed tags verification
+        self.assertNotIn("<!-- START_", initial_note)
+        self.assertNotIn("<!-- END_", initial_note)
+
+        # No Obsidian/GitHub callouts
+        self.assertNotIn("> [!NOTE]", initial_note)
+        self.assertNotIn("> [!IMPORTANT]", initial_note)
+        self.assertNotIn("> [!WARNING]", initial_note)
+        self.assertNotIn("> [!TIP]", initial_note)
+
+        # Auto Metadata table contains classification fields
+        self.assertIn("| Relevance Level |", initial_note)
+        self.assertIn("| Confidence |", initial_note)
+        self.assertIn("| Reason |", initial_note)
+        self.assertIn("| Method Tags |", initial_note)
+        self.assertIn("| Problem Tags |", initial_note)
+
+        # Tag formatting
         self.assertIn("#LLM#", initial_note)
         self.assertIn("#Unread#", initial_note)
-        
-        # Simulate user writing notes
+
+        # All 10 clean H2 section headings present
+        for heading in [
+            "## Auto Metadata", "## AI Draft Summary", "## Classification Evidence",
+            "## AI Draft Review", "## My Reading Notes", "## My Judgment",
+            "## Knowledge Extraction", "## Knowledge Backfeed Status",
+            "## Share Decision", "## Next Action"
+        ]:
+            self.assertIn(heading, initial_note)
+
+        # --- MERGE: simulate user writing notes ---
         modified_note = initial_note.replace(
             "(在此记录您的阅读细节、推导过程、关键公式或模型架构的独特理解)",
-            "My custom human comments on this paper."
-        )
-        modified_note = modified_note.replace(
+            "My custom human comments on this paper.\n---\nSome notes below the internal rule."
+        ).replace(
             "(在这里写下您对该文的真实技术评价，是否真正解决了痛点？)",
             "My custom judgment comments."
         )
-        
-        # Run merge generation (with existing content)
+
         updated_paper = paper.copy()
-        updated_paper["priority"] = "High"  # Changed priority
-        updated_paper["my_rating"] = "5 Stars"
-        
+        updated_paper["priority"] = "High"
+
         merged_note = note_gen.generate(updated_paper, existing_content=modified_note)
-        
-        # Check that metadata got updated inside the markdown table
+        self.assertIsNotNone(merged_note)
+
+        # Metadata updated
         self.assertIn("| Priority | High |", merged_note)
         self.assertIn("| Relevance Level | A_Core_PostTraining |", merged_note)
-        # Check that human notes are preserved
+
+        # Human notes preserved
         self.assertIn("My custom human comments on this paper.", merged_note)
+        self.assertIn("Some notes below the internal rule.", merged_note)
         self.assertIn("My custom judgment comments.", merged_note)
         self.assertNotIn("(在此记录您的阅读细节、推导过程、关键公式或模型架构的独特理解)", merged_note)
 
-        # Test missing protected section behavior (skip and warn)
+        # Merged output also clean
+        self.assertNotIn("<!-- START_", merged_note)
+        self.assertNotIn("> [!IMPORTANT]", merged_note)
+
+        # --- SKIP: missing protected heading in existing doc ---
         bad_note = modified_note.replace("## My Reading Notes", "## Mismatched Title")
         skipped_note = note_gen.generate(updated_paper, existing_content=bad_note)
-        self.assertIsNone(skipped_note)
+        self.assertIsNone(skipped_note, "Should skip update when protected section is missing")
 
-        # Test old document format migration during merge
-        old_style_note = """# A Test Paper on DPO
-## [My Reading Notes]
-<!-- START_MY_READING_NOTES -->
-> [!IMPORTANT]
-> *人工阅读记录。任何自动同步工具均绝对禁止覆盖或清空此分区。*
-> *   **阅读时间**: 2026-05-25
-> *   **精读笔记**: 
->     *   This is old notes.
-<!-- END_MY_READING_NOTES -->
-
-## [My Judgment]
-<!-- START_MY_JUDGMENT -->
-> [!IMPORTANT]
-> *人工思考与批判性判断。任何自动同步工具均绝对禁止覆盖或清空此分区。*
-> *   **论文盲点/局限性**: None
-> *   **实验设计局限**: None
-> *   **我的评价**: 
->     *   Old judgment.
-<!-- END_MY_JUDGMENT -->
-
-## [AI Draft Review]
-<!-- START_AI_DRAFT_REVIEW -->
-> [!IMPORTANT]
-> *人工对 AI 生成草稿的审查记录，自动更新不会覆盖。*
-> *   **AI Draft 是否可信**: High
-> *   **错误点**: None
-<!-- END_AI_DRAFT_REVIEW -->
-
-## [Knowledge Backfeed Status]
-<!-- START_KNOWLEDGE_BACKFEED_STATUS -->
-*   [x] 已回流 Topic 页面
-<!-- END_KNOWLEDGE_BACKFEED_STATUS -->
-"""
+        # --- OLD FORMAT MIGRATION: emoji+bracket headings, HTML comments, callouts ---
+        old_style_note = (
+            "# A Test Paper on DPO\n\n"
+            "## [My Reading Notes]\n"
+            "<!-- START_MY_READING_NOTES -->\n"
+            "> [!IMPORTANT]\n"
+            "> *\u4eba\u5de5\u9605\u8bfb\u8bb0\u5f55\u3002\u4efb\u4f55\u81ea\u52a8\u540c\u6b65\u5de5\u5177\u5747\u7edd\u5bf9\u7981\u6b62\u8986\u76d6\u6216\u6e05\u7a7a\u6b64\u5206\u533a\u3002*\n"
+            "> *   **\u9605\u8bfb\u65f6\u95f4**: 2026-05-25\n"
+            "> *   **\u7cbe\u8bfb\u7b14\u8bb0**: \n"
+            ">     *   This is old notes.\n"
+            "<!-- END_MY_READING_NOTES -->\n\n"
+            "## [My Judgment]\n"
+            "<!-- START_MY_JUDGMENT -->\n"
+            "> [!IMPORTANT]\n"
+            "> *\u4eba\u5de5\u601d\u8003\u4e0e\u6279\u5224\u6027\u5224\u65ad\u3002*\n"
+            "> *   **\u8bba\u6587\u76f2\u70b9/\u5c40\u9650\u6027**: None\n"
+            "> *   **\u5b9e\u9a8c\u8bbe\u8ba1\u5c40\u9650**: None\n"
+            "> *   **\u6211\u7684\u8bc4\u4ef7**: \n"
+            ">     *   Old judgment.\n"
+            "<!-- END_MY_JUDGMENT -->\n\n"
+            "## \U0001f50d [AI Draft Review]\n"
+            "<!-- START_AI_DRAFT_REVIEW -->\n"
+            "> [!WARNING]\n"
+            "> *\u4eba\u5de5\u5bf9 AI \u751f\u6210\u8349\u7a3f\u7684\u5ba1\u67e5\u8bb0\u5f55\u3002*\n"
+            "> *   **AI Draft \u662f\u5426\u53ef\u4fe1**: High\n"
+            "> *   **\u9519\u8bef\u70b9**: None\n"
+            "<!-- END_AI_DRAFT_REVIEW -->\n\n"
+            "## \U0001f504 [Knowledge Backfeed Status]\n"
+            "<!-- START_KNOWLEDGE_BACKFEED_STATUS -->\n"
+            "*   [x] \u5df2\u56de\u6d41 Topic \u9875\u9762\n"
+            "<!-- END_KNOWLEDGE_BACKFEED_STATUS -->\n"
+        )
         migrated_note = note_gen.generate(updated_paper, existing_content=old_style_note)
-        self.assertIsNotNone(migrated_note)
-        self.assertNotIn("<!-- START_MY_READING_NOTES -->", migrated_note)
-        self.assertNotIn("<!-- END_MY_READING_NOTES -->", migrated_note)
-        self.assertNotIn("<!-- START_MY_JUDGMENT -->", migrated_note)
-        self.assertNotIn("> [!IMPORTANT]", migrated_note)
-        self.assertNotIn("人工阅读记录", migrated_note)
-        self.assertIn("## My Reading Notes", migrated_note)
-        self.assertNotIn("## [My Reading Notes]", migrated_note)
+        self.assertIsNotNone(migrated_note, "Migration of old-format doc should succeed")
+
+        # Old human content preserved after migration
         self.assertIn("This is old notes.", migrated_note)
         self.assertIn("Old judgment.", migrated_note)
-        self.assertIn("*   **AI Draft 是否可信**: High", migrated_note)
-        self.assertNotIn("> *   **AI Draft 是否可信**", migrated_note)
+        self.assertIn("**AI Draft \u662f\u5426\u53ef\u4fe1**: High", migrated_note)
 
-        # Test Share Brief merges
+        # Output headings are clean (no emoji, no brackets)
+        self.assertIn("## My Reading Notes", migrated_note)
+        self.assertNotIn("## [My Reading Notes]", migrated_note)
+        self.assertNotIn("## \U0001f4dd My Reading Notes", migrated_note)
+        self.assertNotIn("## \U0001f50d [AI Draft Review]", migrated_note)
+        self.assertNotIn("## \U0001f504 [Knowledge Backfeed Status]", migrated_note)
+
+        # No HTML comments in migrated output
+        self.assertNotIn("<!-- START_", migrated_note)
+        self.assertNotIn("<!-- END_", migrated_note)
+
+        # No Obsidian callouts in migrated output
+        self.assertNotIn("> [!IMPORTANT]", migrated_note)
+        self.assertNotIn("> [!WARNING]", migrated_note)
+
+        # Boilerplate callout text stripped
+        self.assertNotIn("\u4eba\u5de5\u9605\u8bfb\u8bb0\u5f55\u3002\u4efb\u4f55\u81ea\u52a8\u540c\u6b65\u5de5\u5177\u5747\u7edd\u5bf9\u7981\u6b62\u8986\u76d6", migrated_note)
+
+        # --- SHARE BRIEF: clean format ---
         initial_share = share_gen.generate(paper)
-        self.assertNotIn("<!-- START_MY_SHARE_DETAILS -->", initial_share)
-        
+        self.assertIsNotNone(initial_share)
+
+        # No HTML comments
+        self.assertNotIn("<!-- START_", initial_share)
+        self.assertNotIn("<!-- END_", initial_share)
+
+        # No Obsidian callouts
+        self.assertNotIn("> [!NOTE]", initial_share)
+        self.assertNotIn("> [!IMPORTANT]", initial_share)
+
+        # No bracketed headings
+        self.assertNotIn("## [", initial_share)
+
+        # No emoji headings at the ## level
+        import re
+        for line in initial_share.splitlines():
+            if line.startswith("## "):
+                # The character after "## " must be a letter/digit/CJK, not emoji
+                rest = line[3:]
+                self.assertFalse(
+                    bool(re.match(r"^[^\w\u4e00-\u9fa5\[\s]", rest)),
+                    f"Share brief has emoji/symbol heading: {line!r}"
+                )
+
+        # Clean H2 headings in share output
+        self.assertIn("## Auto Metadata", initial_share)
+        self.assertIn("## My Share Content", initial_share)
+        self.assertIn("## Sources", initial_share)
+
+        # Share brief preserves user edits on merge
         modified_share = initial_share.replace(
-            "这篇论文主要讲：",
+            "\u8fd9\u7bc7\u8bba\u6587\u4e3b\u8981\u8bb2\uff1a",
             "Human share details."
         )
         merged_share = share_gen.generate(updated_paper, existing_content=modified_share)
         self.assertIn("Human share details.", merged_share)
-        self.assertNotIn("这篇论文主要讲：", merged_share)
+        self.assertNotIn("\u8fd9\u7bc7\u8bba\u6587\u4e3b\u8981\u8bb2\uff1a", merged_share)
+        self.assertNotIn("每一个分享标题建议", merged_share)
+
+    def test_new_format_adjustments(self):
+        note_gen = NoteGenerator()
+
+        # 1. Test Source / Status / Data Origin consistency
+        paper_or = {
+            "title": "OpenReview Paper",
+            "authors": ["Author B"],
+            "data_origin": "openreview_api",
+            "source": "Unknown",
+            "status": "Unknown"
+        }
+        note_or = note_gen.generate(paper_or)
+        self.assertIn("| Source | openreview |", note_or)
+        self.assertIn("| Status | accepted |", note_or)
+        self.assertIn("| Data Origin | openreview_api |", note_or)
+
+        # 2. Test Knowledge Extraction has no double links, maps correctly, and fallbacks to "待人工补充"
+        paper_tags = {
+            "title": "Mapping Tags Paper",
+            "post_training_types": ["dpo", "unknown_method"],
+            "problem_tags": ["length bias", "unknown_problem"]
+        }
+        note_tags = note_gen.generate(paper_tags)
+        extraction_section = note_gen.extract_section(note_tags, "Knowledge Extraction")
+        self.assertIn("[[DPO]]", extraction_section)
+        self.assertNotIn("unknown_method", extraction_section)
+        self.assertNotIn("方法或机制链接", extraction_section)
+        
+        self.assertIn("[[Length_Bias]]", extraction_section)
+        self.assertNotIn("unknown_problem", extraction_section)
+        self.assertNotIn("问题意识链接", extraction_section)
+
+        # test fallback to "待人工补充"
+        paper_no_tags = {
+            "title": "No Tags Paper",
+            "post_training_types": [],
+            "problem_tags": []
+        }
+        note_no_tags = note_gen.generate(paper_no_tags)
+        self.assertIn("*   **可提炼的方法/技术路线**: ➔ 待人工补充", note_no_tags)
+        self.assertIn("*   **可引入的问题意识/技术冲突**: ➔ 待人工补充", note_no_tags)
+
+        # 3. Test Next Action checklist is a fixed list
+        expected_checklist = """*   [ ] 读 Introduction
+*   [ ] 读 Method
+*   [ ] 读 Experiments
+*   [ ] 看 Ablation
+*   [ ] 找相关论文对比
+*   [ ] 回流到知识页
+*   [ ] 判断是否生成分享稿"""
+        self.assertIn(expected_checklist, note_or)
+
+        # 4. Test AI Draft Summary Problem Solved fallback
+        paper_no_abstract = {
+            "title": "No Abstract Paper",
+            "abstract": ""
+        }
+        note_no_abstract = note_gen.generate(paper_no_abstract)
+        self.assertIn("*   **解决的问题**: 待精读后补充", note_no_abstract)
+
+        paper_ellipses_abstract = {
+            "title": "Ellipses Abstract Paper",
+            "abstract": "..."
+        }
+        note_ellipses = note_gen.generate(paper_ellipses_abstract)
+        self.assertIn("*   **解决的问题**: 待精读后补充", note_ellipses)
+
+        paper_short_abstract = {
+            "title": "Short Abstract Paper",
+            "abstract": "This is a short abstract."
+        }
+        note_short = note_gen.generate(paper_short_abstract)
+        self.assertIn("*   **解决的问题**: This is a short abstract.", note_short)
 
     def test_candidate_not_equal_to_relevant(self):
         # 4. Verify candidate is not always equal to relevant (C or D classes)
@@ -797,6 +941,61 @@ class TestIntegration(unittest.TestCase):
             self.assertEqual(p["manual_selected"], 1)
             self.assertEqual(p["include_in_reading_queue"], 1)
             db_verify.close()
+
+    def test_export_reading_packet(self):
+        from scripts.export_reading_packet import main
+        db = DatabaseManager(self.db_path)
+        
+        # Insert a paper
+        paper = {
+            "title": "Export Packet Test Paper", "title_norm": "export packet test paper", "venue": "ICLR", "year": 2025,
+            "source": "openreview", "source_id": "packet_p1", "status": "accepted",
+            "abstract": "This is a great abstract."
+        }
+        paper_id = db.insert_or_update_paper(paper)
+        db.update_paper_tags(paper_id, {
+            "is_relevant": 1, 
+            "post_training_types": ["dpo"],
+            "problem_tags": ["length bias"]
+        })
+        db.close()
+        
+        test_args = ["export_reading_packet.py", "--title", "Export Packet Test Paper"]
+        
+        with patch('sys.argv', test_args), patch('scripts.export_reading_packet.PostTrainRadarApp') as mock_app_class:
+            mock_app = MagicMock()
+            mock_app.db = DatabaseManager(self.db_path)
+            mock_app.note_gen = NoteGenerator()
+            mock_app.share_gen = ShareGenerator()
+            mock_app.get_exporter.return_value = None
+            mock_app_class.return_value = mock_app
+            
+            main()
+            
+            out_file = "data/reading_packets/Export_Packet_Test_Paper_reading_packet.md"
+            self.assertTrue(os.path.exists(out_file), "Reading packet output file should be created")
+            
+            with open(out_file, "r", encoding="utf-8") as f:
+                content = f.read()
+                
+            self.assertIn("## 1. Paper Card 当前内容", content)
+            self.assertIn("## 2. Auto Metadata", content)
+            self.assertIn("## 3. AI Draft Summary", content)
+            self.assertIn("## 4. Classification Evidence", content)
+            self.assertIn("## 5. Abstract", content)
+            self.assertIn("## 6. Method Tags / Problem Tags", content)
+            self.assertIn("## 7. 推荐回流的 Method / Problem 页面", content)
+            self.assertIn("## 8. Share Brief 草稿", content)
+            self.assertIn("## 9. 阅读助手使用说明", content)
+            
+            self.assertIn("Export Packet Test Paper", content)
+            self.assertIn("This is a great abstract.", content)
+            self.assertIn("[[DPO]]", content)
+            self.assertIn("[[Length_Bias]]", content)
+            
+            if os.path.exists(out_file):
+                os.remove(out_file)
+            mock_app.db.close()
 
 if __name__ == "__main__":
     unittest.main()

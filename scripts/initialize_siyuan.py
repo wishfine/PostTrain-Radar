@@ -154,7 +154,6 @@ def main():
     # 2. 00_Index Pages
     total_portal_md = """# 🧭 总入口 (PostTrain Radar Entry)
 
-> [!IMPORTANT]
 > **思源知识库定位**：本笔记**绝对不是全量论文仓库**，而是一个面向 LLM/VLM post-training 领域的**精选阅读工作台**。全量论文的抓取、过滤与分类结果由 PostTrain Radar 项目在 SQLite 和本地 CSV 报告中存储与维护。
 
 ## 三层模型说明
@@ -306,168 +305,82 @@ graph TD
     paper_card_md = """# Paper Title
 
 ## Auto Metadata
-<!-- START_AUTO_METADATA -->
-- Title:
-- Authors:
-- Venue:
-- Year:
-- Source:
-- Source ID:
-- Data Origin:
-- Status:
-- Model Type:
-- Method Tags:
-- Problem Tags:
-- Relevance Level:
-- Priority:
-- Reading Status:
-- Share Status:
-- Paper URL:
-- PDF URL:
-- Synced At:
-- Sync Mode:
-<!-- END_AUTO_METADATA -->
-
-> 说明：这一部分可以由 PostTrain Radar 自动生成或更新。
-
----
+| Metadata Key | Value |
+| :--- | :--- |
+| Venue |  |
+| Year |  |
+| Authors |  |
+| Source |  |
+| Status |  |
+| Data Origin |  |
+| Type |  |
+| Tags |  |
+| Priority |  |
+| Relevance Level |  |
+| Confidence |  |
+| Reason |  |
+| Method Tags |  |
+| Problem Tags |  |
+| Core Post-Training |  |
+| URL |  |
+| PDF |  |
 
 ## AI Draft Summary
-<!-- START_AI_DRAFT_SUMMARY -->
-### 一句话总结
+*   **一句话总结**: 作者认为 ______，因此提出 ______。
+*   **解决的问题**: 待精读后补充
+*   **核心方法**: 
+*   **实验结论**: 
 
-作者认为 ______，因此提出 ______。
-
-### 核心问题
-
-### 方法思路
-
-### 实验结论
-
-### Matched Evidence
-<!-- END_AI_DRAFT_SUMMARY -->
-
-> 说明：这一部分可以由 AI 辅助生成，但需要人工检查。
-
----
-
-## My Reading Notes
-<!-- START_MY_READING_NOTES -->
-> 这是我的人工阅读笔记，任何自动同步都不能覆盖。
-
-### 1. 我为什么读这篇论文？
-
-### 2. 读完后我真正理解了什么？
-
-### 3. 这篇论文最有价值的点是什么？
-
-### 4. 我觉得它没有讲清楚什么？
-
-### 5. 我不同意或怀疑的地方
-<!-- END_MY_READING_NOTES -->
-
----
-
-## My Judgment
-<!-- START_MY_JUDGMENT -->
-> 这是我的最终判断，任何自动同步都不能覆盖。
-
-### 这篇论文的真实贡献
-
-### 它是否只是工程组合？
-
-### 它和已有路线的关系
-
-- SFT:
-- RLHF / PPO:
-- DPO:
-- GRPO:
-- Reward Model / Verifier:
-- VLM Alignment:
-
-### 我的批判性评价
-<!-- END_MY_JUDGMENT -->
-
----
+## Classification Evidence
+| Section | Keyword Group | Title Matches | Abstract Matches | Evidence Detail |
+| :--- | :--- | :--- | :--- | :--- |
+| - | - | - | - | No classification evidence recorded. |
 
 ## AI Draft Review
-<!-- START_AI_DRAFT_REVIEW -->
-> 这是我对 AI 初稿质量的检查，任何自动同步都不能覆盖。
+> 说明：人工对 AI 生成草稿的审查记录，自动更新不会覆盖。
+*   **AI Draft 是否可信**: High / Medium / Low
+*   **错误点**: 
+*   **我修正后的理解**: 
+*   **是否需要重新生成**: 
 
-- AI Draft 是否可信：High / Medium / Low
-- AI 错误点：
-- 我修正后的理解：
-- 是否需要重新生成：
-<!-- END_AI_DRAFT_REVIEW -->
+## My Reading Notes
+> 说明：这里是人工精读笔记区，任何自动同步均不会覆盖此区。
+*   **阅读时间**: 
+*   **精读笔记**: 
+    *   (在此记录您的阅读细节、推导过程、关键公式或模型架构的独特理解)
 
----
+## My Judgment
+> 说明：这里是人工独立技术判断区，任何自动同步均不会覆盖此区。
+*   **论文盲点/局限性**: 
+*   **实验设计局限**: 
+*   **我的评价**: 
+    *   (在这里写下您对该文的真实技术评价，是否真正解决了痛点？)
 
 ## Knowledge Extraction
-<!-- START_KNOWLEDGE_EXTRACTION -->
-### 应该链接到的 Topic 页面
-
-- [[LLM_PostTraining]]
-- [[VLM_PostTraining]]
-- [[Agent_PostTraining]]
-
-### 应该链接到的 Method 页面
-
-- [[DPO]]
-- [[GRPO]]
-- [[RLHF]]
-- [[Reward_Modeling]]
-
-### 应该链接到的 Problem 页面
-
-- [[Credit_Assignment]]
-- [[Length_Bias]]
-- [[Reward_Hacking]]
-- [[Distribution_Shift]]
-
-### 可复用知识点
-
-- 一个概念：
-- 一个问题：
-- 一个方法机制：
-- 一个实验设计经验：
-- 一个批判性观点：
-<!-- END_KNOWLEDGE_EXTRACTION -->
-
----
+*   **可提炼的方法/技术路线**: ➔ 待人工补充
+*   **可引入的问题意识/技术冲突**: ➔ 待人工补充
+*   **有启发的后续实验设计**: 
 
 ## Knowledge Backfeed Status
-<!-- START_KNOWLEDGE_BACKFEED_STATUS -->
-- [ ] 已回流 Topic 页面
-- [ ] 已回流 Method 页面
-- [ ] 已回流 Problem 页面
-- [ ] 已加入 Share 候选池
-- [ ] 已更新 阅读后思考索引
-<!-- END_KNOWLEDGE_BACKFEED_STATUS -->
-
----
+*   [ ] 已回流 Topic 页面
+*   [ ] 已回流 Method 页面
+*   [ ] 已回流 Problem 页面
+*   [ ] 已加入 Share 候选池
+*   [ ] 已更新 阅读后思考索引
 
 ## Share Decision
-<!-- START_SHARE_DECISION -->
-- 是否值得分享：Yes / No / Maybe
-- 分享价值：Conceptual / Methodological / Experimental / Survey-worthy / Related-to-my-research
-- 适合分享时长：5min / 15min / 30min
-- 分享角度：
-- 目标听众：
-<!-- END_SHARE_DECISION -->
-
----
+*   **是否值得分享**: 是/否
+*   **分享主题建议**: 
+*   **分享目标受众**: 
 
 ## Next Action
-<!-- START_NEXT_ACTION -->
-- [ ] 读 Introduction
-- [ ] 读 Method
-- [ ] 读 Experiments
-- [ ] 看 Ablation
-- [ ] 找相关论文对比
-- [ ] 回流到知识页
-- [ ] 生成分享稿
-- [ ] 归档
-<!-- END_NEXT_ACTION -->
+*   [ ] 读 Introduction
+*   [ ] 读 Method
+*   [ ] 读 Experiments
+*   [ ] 看 Ablation
+*   [ ] 找相关论文对比
+*   [ ] 回流到知识页
+*   [ ] 判断是否生成分享稿
 
 ---
 *回到主入口: [[总入口]]*"""
@@ -628,7 +541,6 @@ graph TD
     share_template_md = """# 分享标题
 
 ## Share Metadata
-<!-- START_AUTO_METADATA -->
 - **Share Status**: Draft / Ready / Presented / Archived
 - **Target Audience**: 
 - **Target Duration**: 5min / 15min / 30min
@@ -636,12 +548,9 @@ graph TD
 - **Related Methods**: 
 - **Related Problems**: 
 - **Last Updated**: 
-<!-- END_AUTO_METADATA -->
 
 ## 观点来源
-<!-- START_SOURCES -->
 - 
-<!-- END_SOURCES -->
 
 ## 论文来源
 - 

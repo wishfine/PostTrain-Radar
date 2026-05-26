@@ -272,6 +272,8 @@ class RuleClassifier(BaseClassifier):
             print(f"[*] Applying manual overrides for paper '{title}': {override}")
             for k, v in override.items():
                 res[k] = v
+            if "method_tags" in override:
+                res["post_training_types"] = override["method_tags"]
             if "relevance_level" in override:
                 lvl = override["relevance_level"]
                 res["is_core_posttraining"] = 1 if lvl == "A_Core_PostTraining" else 0
