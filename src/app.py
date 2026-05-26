@@ -301,7 +301,7 @@ class PostTrainRadarApp:
     def generate_reading_queue_featured(self, papers: list) -> str:
         """
         Formats featured papers into a Reading Queue document.
-        Featured criteria: Only papers that are manually selected (manual_selected == 1 or include_in_reading_queue == 1).
+        Featured criteria: Only papers that are manually selected (manual_selected == 1 or include_in_siyuan == 1 or include_in_reading_queue == 1).
         Only shows papers with reading_status in ['Unread', 'Reading'].
         """
         featured_papers = []
@@ -310,7 +310,7 @@ class PostTrainRadarApp:
             if status not in ["Unread", "Reading"]:
                 continue
             
-            is_manual = (p.get("include_in_reading_queue") == 1 or p.get("manual_selected") == 1)
+            is_manual = (p.get("include_in_reading_queue") == 1 or p.get("manual_selected") == 1 or p.get("include_in_siyuan") == 1)
             
             if is_manual:
                 featured_papers.append(p)
@@ -421,7 +421,11 @@ class PostTrainRadarApp:
             return metrics
 
         papers = self.db.get_classified_papers(venue, year)
-        relevant_papers = [p for p in papers if p.get("is_relevant")]
+        relevant_papers = []
+        for p in papers:
+            is_manual = (p.get("include_in_siyuan") == 1 or p.get("manual_selected") == 1 or p.get("include_in_reading_queue") == 1)
+            if p.get("is_relevant") == 1 or is_manual:
+                relevant_papers.append(p)
 
         # Determine papers to sync based on siyuan_scope
         sync_papers = []
@@ -547,7 +551,7 @@ class PostTrainRadarApp:
 - **Dry Run**: {"Enabled" if dry_run else "Disabled"}
 
 ## Sync Summary
-- **Index Pages to Sync**: Reading_Queue_Full, 精选阅读队列, 阅读后思考索引, Group_Meeting 分享候选池, 知识回流建议
+- **Index Pages to Sync**: 精选阅读队列, 阅读后思考索引, Group_Meeting 分享候选池, 知识回流建议
 - **Prompts to Sync**: Workflow templates in config/prompts/
 - **Paper Notes Planned to Sync**: {len(plan_actually_synced)}
 - **Paper Notes Skipped due to Scope**: {len(plan_skipped_scope)}
@@ -555,6 +559,9 @@ class PostTrainRadarApp:
 
 {warning_notice}
 {tag_overrides_prompt}
+
+> [!NOTE]
+> **Reading_Queue_Full.md** is a full local queue of all relevant papers, and is saved locally to `data/00_Index/Reading_Queue_Full.md` and `data/reports/Reading_Queue_Full.md`. It is **NOT** synced to SiYuan to keep the workspace clean.
 
 ## Actually Synced Paper Notes
 {self._build_markdown_table(plan_actually_synced)}

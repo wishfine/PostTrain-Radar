@@ -67,6 +67,40 @@ def main():
     title = target_paper["title"]
     print(f"[*] Found paper: '{title}' (ID: {target_paper['id']})")
     
+    # Check if selected in tag_overrides.yaml
+    overrides = {}
+    overrides_path = "data/manual/tag_overrides.yaml"
+    if os.path.exists(overrides_path):
+        try:
+            with open(overrides_path, "r", encoding="utf-8") as f:
+                content = yaml.safe_load(f)
+                if isinstance(content, dict):
+                    for k, v in content.items():
+                        if isinstance(v, dict):
+                            overrides[str(k).lower().strip()] = v
+        except Exception as e:
+            print(f"[!] Warning: Failed to load overrides file in script: {e}")
+
+    # Check match in overrides
+    title_norm = normalize_title(title)
+    source_id = target_paper.get("source_id")
+    override = None
+    if source_id and str(source_id).lower().strip() in overrides:
+        override = overrides[str(source_id).lower().strip()]
+    elif title_norm in overrides:
+        override = overrides[title_norm]
+
+    is_selected = False
+    if override:
+        is_selected = (
+            override.get("manual_selected") is True or 
+            override.get("include_in_siyuan") is True or 
+            override.get("include_in_reading_queue") is True
+        )
+
+    if not is_selected:
+        print("[!] WARNING: This paper is not manually selected. It is not part of the curated reading workflow.")
+    
     # Initialize SiYuan Exporter to check live content
     siyuan_exporter = app.get_exporter("siyuan")
     siyuan_connected = False
@@ -201,6 +235,10 @@ def main():
 > 让我们开始吧！请先简要向我确认你已完全理解上述指令和数据包背景。
 > ```"""
 
+    # Extract relevance and priority
+    relevance_level = target_paper.get("relevance_level") or "D_Irrelevant"
+    priority = target_paper.get("priority") or "Medium"
+
     # Assemble the Reading Packet MD
     packet_md = f"""# Reading Packet: {title}
 
@@ -221,7 +259,9 @@ def main():
 ## 5. Abstract
 {abstract_formatted}
 
-## 6. Method Tags / Problem Tags
+## 6. Method Tags / Problem Tags / Relevance & Priority
+- **Relevance Level**: {relevance_level}
+- **Priority**: {priority}
 - **Method Tags**: {method_tags_str}
 - **Problem Tags**: {problem_tags_str}
 
@@ -246,6 +286,7 @@ def main():
         f.write(packet_md)
         
     print(f"[+] Successfully exported reading packet to: {out_path}")
+    print(f"[*] Note: This script outputs ONLY to a local file and does not make write requests to SiYuan.")
 
 if __name__ == "__main__":
     main()

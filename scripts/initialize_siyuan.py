@@ -628,8 +628,66 @@ graph TD
     create_doc(notebook_id, "/06_Workflows/Reading_Workflows/阅读后思考沉淀流程", reading_thoughts_flow_md)
 
     # Automation Workflows
-    create_doc(notebook_id, "/06_Workflows/Automation/PostTrain Radar 使用流程", "# PostTrain Radar 使用流程\n\n说明如何调用本项目的抓取与分类流程。")
-    create_doc(notebook_id, "/06_Workflows/Automation/思源同步流程", "# 思源同步流程\n\n介绍运行 `run_pipeline.py` 进行选择性同步的具体命令与参数配置。")
+    workflow_md = """# PostTrain Radar 使用流程
+
+说明如何调用本项目的抓取、分类与同步流程。
+
+## 🔄 标准日常使用流程
+
+1. **抓取与分类本地化 (第一步)**
+   运行以下命令，仅在本地生成数据，**不向思源写入任何数据**：
+   ```bash
+   ./venv/bin/python run_pipeline.py --venue ICLR --year 2025 --sync-target markdown
+   ```
+   这会在本地生成 `data/processed/{venue}_{year}_classified.csv` 与 `data/00_Index/Reading_Queue_Full.md`。
+
+2. **生成重写候选 (第二步)**
+   提取本期的高价值与高可信度候选论文模板：
+   ```bash
+   ./venv/bin/python scripts/generate_override_candidates.py --venue ICLR --year 2025 --top-k 50
+   ```
+   输出至 `data/manual/tag_overrides_candidates_iclr_2025.yaml`。所有人工准入开关默认为 `false`。
+
+3. **人工编辑审核 (第三步)**
+   打开 `data/manual/tag_overrides_candidates_{venue}_{year}.yaml`，挑选感兴趣的论文，拷贝至 `data/manual/tag_overrides.yaml` 中，并修改其人工确认标记：
+   - `manual_selected: true` (表示我认可这篇论文)
+   - `include_in_siyuan: true` (允许同步进思源)
+   - `include_in_reading_queue: true` (同步进精选阅读队列)
+   - `include_in_share_pool: true` (进入分享候选池)
+
+4. **预运行检查 (第四步)**
+   在同步至思源前，务必先进行 dry-run 以检查同步计划：
+   ```bash
+   ./venv/bin/python run_pipeline.py --venue ICLR --year 2025 --sync-target siyuan --siyuan-scope selected --dry-run
+   ```
+   确认生成的计划文件 `data/reports/siyuan_sync_plan_iclr_2025.md` 符合预期。
+
+5. **精选同步到思源 (第五步)**
+   正式执行精选同步：
+   ```bash
+   ./venv/bin/python run_pipeline.py --venue ICLR --year 2025 --sync-target siyuan --siyuan-scope selected
+   ```
+   这会更新 `/00_Index/精选阅读队列` 并且仅同步已批准的论文卡片与分享稿模板。
+
+6. **导出阅读背景包 (第六步)**
+   为准备精读的论文导出阅读助手背景包：
+   ```bash
+   ./venv/bin/python scripts/export_reading_packet.py --title "Paper Title"
+   ```
+   这会输出至 `data/reading_packets/{safe_title}_reading_packet.md`。
+
+7. **阅读 Session 精读并写回 (第七步)**
+   将 `reading_packet.md` 粘贴给 AI 阅读助手开展精读。阅读助手输出精读脑暴草稿后，用户将其人工确认并手动贴回思源卡片的 `My Reading Notes`、`My Judgment` 等分区中。
+
+---
+
+## 📌 核心准则
+1. **分类器只负责推荐**：分类器的自动判定（Core、High Priority 等）仅用作挑选时的筛选提示。
+2. **`tag_overrides.yaml` 是唯一人工批准入口**：思源是 curated workspace（精选工作台），而不是全量论文库。只有被人工显式勾选了准入开关的论文才允许同步。
+3. **日常同步模式**：唯一推荐日常使用的模式是 `--siyuan-scope selected`。其他模式（`high`, `core`, `worth_sharing`）仅作调试使用。
+"""
+    create_doc(notebook_id, "/06_Workflows/Automation/PostTrain Radar 使用流程", workflow_md)
+    create_doc(notebook_id, "/06_Workflows/Automation/思源同步流程", "# 思源同步流程\n\n介绍运行 `run_pipeline.py` 进行选择性同步的推荐命令。唯一推荐的日常使用方式为 `--siyuan-scope selected`。")
     
     sync_policy_md = """# 精选同步原则
 

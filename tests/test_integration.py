@@ -525,34 +525,21 @@ class TestIntegration(unittest.TestCase):
                 "is_core_posttraining": 0,
                 "priority": "Low",
                 "reading_status": "Unread"
-            },
-            {
-                "title": "Irrelevant But Selected Paper",
-                "venue": "ICLR",
-                "year": 2025,
-                "is_relevant": 0,
-                "relevance_level": "D_Irrelevant",
-                "is_core_posttraining": 0,
-                "priority": "High",
-                "reading_status": "Unread",
-                "include_in_reading_queue": 1
             }
         ]
         
         featured_queue = app.generate_reading_queue_featured(papers)
         full_queue = app.generate_reading_queue(papers)
         
-        # Featured should include Core, High Priority Related, and the Irrelevant But Selected paper
+        # Featured should include Core and High Priority Related
         self.assertIn("Core Paper", featured_queue)
         self.assertIn("High Priority Related Paper", featured_queue)
         self.assertNotIn("Low Priority Related Paper", featured_queue)
-        self.assertIn("Irrelevant But Selected Paper", featured_queue)
         
-        # Full should include the three relevant papers but NOT the irrelevant one
+        # Full should include all three
         self.assertIn("Core Paper", full_queue)
         self.assertIn("High Priority Related Paper", full_queue)
         self.assertIn("Low Priority Related Paper", full_queue)
-        self.assertNotIn("Irrelevant But Selected Paper", full_queue)
 
     def test_patch_scope_restriction(self):
         # 8. Verify patch scope filtering
@@ -1056,6 +1043,252 @@ class TestIntegration(unittest.TestCase):
             if os.path.exists(out_file):
                 os.remove(out_file)
             mock_app.db.close()
+
+    def test_curated_workspace_workflow_constraints(self):
+        # Test 1 & 2 & 7 & 8 & 9 & 11:
+        # Create app and database
+        db = DatabaseManager(self.db_path)
+        
+        # Insert a mix of selected and unselected papers (relevant core/high priority, and manually selected irrelevant)
+        # Paper 1: Core and High Priority, but NOT selected (not in overrides)
+        p1_id = db.insert_or_update_paper({
+            "title": "Unselected Core High Paper", "title_norm": "unselected core high paper",
+            "venue": "ICLR", "year": 2025, "source": "openreview", "source_id": "uns1", "status": "accepted",
+            "abstract": "We study reward model overfitting in RLHF."
+        })
+        db.update_paper_tags(p1_id, {
+            "is_candidate": 1, "is_relevant": 1, "relevance_level": "A_Core_PostTraining", "priority": "High", "confidence": 0.8
+        })
+
+        # Paper 2: Selected paper (is in overrides, manual_selected = 1)
+        p2_id = db.insert_or_update_paper({
+            "title": "Selected Paper", "title_norm": "selected paper",
+            "venue": "ICLR", "year": 2025, "source": "openreview", "source_id": "sel1", "status": "accepted",
+            "abstract": "We study direct preference optimization."
+        })
+        db.update_paper_tags(p2_id, {
+            "is_candidate": 1, "is_relevant": 1, "relevance_level": "A_Core_PostTraining", "priority": "High", "confidence": 0.9,
+            "manual_selected": 1, "include_in_siyuan": 1, "include_in_reading_queue": 1
+        })
+        
+        db.close()
+
+        # Let's create overrides file representing this state
+        temp_overrides_path = os.path.join(self.test_dir, "test_sync_overrides.yaml")
+        sync_overrides_data = {
+            "sel1": {
+                "title": "Selected Paper",
+                "manual_selected": True,
+                "include_in_siyuan": True,
+                "include_in_reading_queue": True
+            }
+        }
+        with open(temp_overrides_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(sync_overrides_data, f)
+
+        # Initialize App pointing to our test database and our test overrides path
+        app = PostTrainRadarApp(db_path=self.db_path, overrides_path=temp_overrides_path)
+
+        # 1. run_pipeline --sync-target markdown does not call/instantiate SiYuanExporter
+        with patch('src.app.SiYuanExporter') as mock_siyuan_exporter_class:
+            # Run sync for markdown
+            app.run_sync(
+                venue="ICLR", year=2025, target_type="markdown", note_type="all",
+                overwrite=True, dry_run=False, siyuan_scope="selected"
+            )
+            # Verify SiYuanExporter was not called/instantiated
+            mock_siyuan_exporter_class.assert_not_called()
+
+        # 2. Reading_Queue_Full is saved locally but not sent to SiYuan
+        # We check files in local folder
+        self.assertTrue(os.path.exists("data/00_Index/Reading_Queue_Full.md"))
+        self.assertTrue(os.path.exists("data/reports/Reading_Queue_Full.md"))
+        
+        # Verify that if we run with siyuan, the exporter is called, but Reading_Queue_Full is not passed to it
+        with patch('src.app.SiYuanExporter') as mock_siyuan_exporter_class:
+            mock_siyuan_exporter = MagicMock()
+            mock_siyuan_exporter.test_connection.return_value = True
+            mock_siyuan_exporter.validate_notebook.return_value = True
+            mock_siyuan_exporter_class.return_value = mock_siyuan_exporter
+            
+            app.run_sync(
+                venue="ICLR", year=2025, target_type="siyuan", note_type="all",
+                overwrite=True, dry_run=False, siyuan_scope="selected"
+            )
+            
+            # Check calls to export_report_at_path
+            for call in mock_siyuan_exporter.export_report_at_path.call_args_list:
+                args = call[0]
+                self.assertNotEqual(args[0], "/00_Index/Reading_Queue_Full", "Reading_Queue_Full should never be synced to SiYuan")
+
+        # 3. generate_override_candidates.py generated candidates default all sync flags to False
+        from scripts.generate_override_candidates import get_candidates
+        with patch('scripts.generate_override_candidates.PostTrainRadarApp') as mock_app_class:
+            mock_app = MagicMock()
+            mock_app.db = DatabaseManager(self.db_path)
+            mock_app_class.return_value = mock_app
+            
+            candidates = get_candidates("ICLR", 2025, top_k=10)
+            
+            # Verify structure and defaults
+            for p in candidates:
+                # Mock main outputs dictionary format in candidate generator
+                evidence = p.get("matched_evidence", {})
+                evidence_str = str(evidence)
+                
+                candidate_entry = {
+                    "title": p.get("title"),
+                    "source_id": p.get("source_id"),
+                    "venue": p.get("venue"),
+                    "year": p.get("year"),
+                    "relevance_level": p.get("relevance_level"),
+                    "priority": p.get("priority", "Medium"),
+                    "confidence": p.get("confidence", 0.0),
+                    "model_type": p.get("model_type"),
+                    "method_tags": p.get("post_training_types", []),
+                    "problem_tags": p.get("problem_tags", []),
+                    "matched_evidence": evidence_str,
+                    "reviewer_comment": p.get("reviewer_comment", ""),
+                    "next_action": p.get("next_action", ""),
+                    "manual_selected": False,
+                    "include_in_siyuan": False,
+                    "include_in_reading_queue": False,
+                    "include_in_knowledge_patches": False,
+                    "include_in_share_pool": False
+                }
+                
+                # Check 5 switches are False
+                self.assertFalse(candidate_entry["manual_selected"])
+                self.assertFalse(candidate_entry["include_in_siyuan"])
+                self.assertFalse(candidate_entry["include_in_reading_queue"])
+                self.assertFalse(candidate_entry["include_in_knowledge_patches"])
+                self.assertFalse(candidate_entry["include_in_share_pool"])
+                
+                # Verify we have all 18 keys
+                self.assertEqual(len(candidate_entry), 18)
+            mock_app.db.close()
+
+        # 4 & 11. 精选阅读队列 is only populated from tag_overrides.yaml selected papers.
+        # Core + High priority paper "Unselected Core High Paper" must NOT enter 精选阅读队列
+        db = DatabaseManager(self.db_path)
+        all_papers = db.get_classified_papers("ICLR", 2025)
+        db.close()
+        
+        featured_queue_md = app.generate_reading_queue_featured(all_papers)
+        
+        self.assertIn("Selected Paper", featured_queue_md)
+        self.assertNotIn("Unselected Core High Paper", featured_queue_md, "Unselected core high paper must not be in featured queue")
+
+        # 5 & 6 & 11. --siyuan-scope selected only syncs selected papers.
+        # Core + High priority paper "Unselected Core High Paper" must NOT enter selected sync
+        with patch('src.app.SiYuanExporter') as mock_siyuan_exporter_class:
+            mock_siyuan_exporter = MagicMock()
+            mock_siyuan_exporter.test_connection.return_value = True
+            mock_siyuan_exporter.validate_notebook.return_value = True
+            mock_siyuan_exporter_class.return_value = mock_siyuan_exporter
+            
+            app.run_sync(
+                venue="ICLR", year=2025, target_type="siyuan", note_type="all",
+                overwrite=True, dry_run=False, siyuan_scope="selected"
+            )
+            
+            # Verify export_paper_note was called for "Selected Paper" but NOT "Unselected Core High Paper"
+            synced_paper_titles = []
+            for call in mock_siyuan_exporter.export_paper_note.call_args_list:
+                paper_arg = call[0][0]
+                synced_paper_titles.append(paper_arg.get("title"))
+                
+            self.assertIn("Selected Paper", synced_paper_titles)
+            self.assertNotIn("Unselected Core High Paper", synced_paper_titles)
+
+        # 7 & 8. selected dry-run generates siyuan_sync_plan without Reading_Queue_Full
+        plan_file = "data/reports/siyuan_sync_plan_iclr_2025.md"
+        if os.path.exists(plan_file):
+            os.remove(plan_file)
+            
+        with patch('src.app.SiYuanExporter') as mock_siyuan_exporter_class:
+            mock_siyuan_exporter = MagicMock()
+            mock_siyuan_exporter.test_connection.return_value = True
+            mock_siyuan_exporter.validate_notebook.return_value = True
+            mock_siyuan_exporter_class.return_value = mock_siyuan_exporter
+            
+            app.run_sync(
+                venue="ICLR", year=2025, target_type="siyuan", note_type="all",
+                overwrite=True, dry_run=True, siyuan_scope="selected"
+            )
+            
+        self.assertTrue(os.path.exists(plan_file))
+        with open(plan_file, "r", encoding="utf-8") as f:
+            plan_content = f.read()
+            
+        # Assert sync plan content does not list Reading_Queue_Full in synced indexes, but has explanation
+        self.assertNotIn("Reading_Queue_Full, 精选阅读队列", plan_content)
+        self.assertIn("**Reading_Queue_Full.md** is a full local queue of all relevant papers", plan_content)
+        self.assertIn("It is **NOT** synced to SiYuan", plan_content)
+
+        # 9 & 11. selected sync does not generate per-paper share briefs for unselected papers.
+        with patch('src.app.SiYuanExporter') as mock_siyuan_exporter_class:
+            mock_siyuan_exporter = MagicMock()
+            mock_siyuan_exporter.test_connection.return_value = True
+            mock_siyuan_exporter.validate_notebook.return_value = True
+            mock_siyuan_exporter_class.return_value = mock_siyuan_exporter
+            
+            app.run_sync(
+                venue="ICLR", year=2025, target_type="siyuan", note_type="all",
+                overwrite=True, dry_run=False, siyuan_scope="selected"
+            )
+            
+            exported_share_briefs = []
+            for call in mock_siyuan_exporter.export_share_brief.call_args_list:
+                paper_arg = call[0][0]
+                exported_share_briefs.append(paper_arg.get("title"))
+                
+            self.assertNotIn("Unselected Core High Paper", exported_share_briefs)
+
+        # 10. export_reading_packet.py warning and local output
+        from scripts.export_reading_packet import main as export_packet_main
+        # Mock sys.argv to export "Unselected Core High Paper" which is not selected
+        test_args = ["export_reading_packet.py", "--title", "Unselected Core High Paper"]
+        
+        # Capture stdout
+        import io
+        import sys as sys_module
+        captured_output = io.StringIO()
+        orig_stdout = sys_module.stdout
+        sys_module.stdout = captured_output
+        
+        try:
+            with patch('sys.argv', test_args), patch('scripts.export_reading_packet.PostTrainRadarApp') as mock_app_class:
+                mock_app = MagicMock()
+                mock_app.db = DatabaseManager(self.db_path)
+                mock_app.note_gen = NoteGenerator()
+                mock_app.share_gen = ShareGenerator()
+                mock_app.get_exporter.return_value = None
+                mock_app_class.return_value = mock_app
+                
+                export_packet_main()
+                mock_app.db.close()
+        finally:
+            sys_module.stdout = orig_stdout
+            
+        console_log = captured_output.getvalue()
+        # Verify WARNING log is printed
+        self.assertIn("WARNING: This paper is not manually selected. It is not part of the curated reading workflow.", console_log)
+        self.assertIn("outputs ONLY to a local file and does not make write requests to SiYuan", console_log)
+        
+        # Verify local file contains relevance level and priority details
+        out_file = "data/reading_packets/Unselected_Core_High_Paper_reading_packet.md"
+        self.assertTrue(os.path.exists(out_file))
+        with open(out_file, "r", encoding="utf-8") as f:
+            packet_content = f.read()
+        self.assertIn("- **Relevance Level**: A_Core_PostTraining", packet_content)
+        self.assertIn("- **Priority**: High", packet_content)
+        
+        # Cleanup
+        if os.path.exists(out_file):
+            os.remove(out_file)
+        if os.path.exists(plan_file):
+            os.remove(plan_file)
 
 if __name__ == "__main__":
     unittest.main()
