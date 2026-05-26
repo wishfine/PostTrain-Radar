@@ -525,21 +525,34 @@ class TestIntegration(unittest.TestCase):
                 "is_core_posttraining": 0,
                 "priority": "Low",
                 "reading_status": "Unread"
+            },
+            {
+                "title": "Irrelevant But Selected Paper",
+                "venue": "ICLR",
+                "year": 2025,
+                "is_relevant": 0,
+                "relevance_level": "D_Irrelevant",
+                "is_core_posttraining": 0,
+                "priority": "High",
+                "reading_status": "Unread",
+                "include_in_reading_queue": 1
             }
         ]
         
         featured_queue = app.generate_reading_queue_featured(papers)
         full_queue = app.generate_reading_queue(papers)
         
-        # Featured should include Core and High Priority Related
+        # Featured should include Core, High Priority Related, and the Irrelevant But Selected paper
         self.assertIn("Core Paper", featured_queue)
         self.assertIn("High Priority Related Paper", featured_queue)
         self.assertNotIn("Low Priority Related Paper", featured_queue)
+        self.assertIn("Irrelevant But Selected Paper", featured_queue)
         
-        # Full should include all three
+        # Full should include the three relevant papers but NOT the irrelevant one
         self.assertIn("Core Paper", full_queue)
         self.assertIn("High Priority Related Paper", full_queue)
         self.assertIn("Low Priority Related Paper", full_queue)
+        self.assertNotIn("Irrelevant But Selected Paper", full_queue)
 
     def test_patch_scope_restriction(self):
         # 8. Verify patch scope filtering

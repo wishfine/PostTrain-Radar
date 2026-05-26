@@ -306,8 +306,6 @@ class PostTrainRadarApp:
         """
         featured_papers = []
         for p in papers:
-            if not p.get("is_relevant"):
-                continue
             status = p.get("reading_status", "Unread")
             if status not in ["Unread", "Reading"]:
                 continue
