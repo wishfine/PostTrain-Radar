@@ -67,6 +67,16 @@ def main():
         action="store_true",
         help="Required confirmation flag if --siyuan-scope is 'all'"
     )
+    parser.add_argument(
+        "--skip-collect",
+        action="store_true",
+        help="Bypass online OpenReview scraping phase, loading existing papers from local SQLite instead"
+    )
+    parser.add_argument(
+        "--sync-only",
+        action="store_true",
+        help="Bypass collection, filtering, and classification entirely, executing a fast overrides application and sync"
+    )
 
     args = parser.parse_args()
 
@@ -82,7 +92,9 @@ def main():
             patch_scope=args.patch_scope,
             siyuan_scope=args.siyuan_scope,
             max_siyuan_notes=args.max_siyuan_notes,
-            confirm_all_sync=args.confirm_all_sync
+            confirm_all_sync=args.confirm_all_sync,
+            skip_collect=args.skip_collect,
+            sync_only=args.sync_only
         )
     except Exception as e:
         import traceback

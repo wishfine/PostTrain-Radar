@@ -1290,5 +1290,119 @@ class TestIntegration(unittest.TestCase):
         if os.path.exists(plan_file):
             os.remove(plan_file)
 
+    def test_curated_workspace_decoupled_modes(self):
+        # Setup database
+        db = DatabaseManager(self.db_path)
+        
+        # Paper 1: Core and High Priority, but NOT selected (not in overrides)
+        p1_id = db.insert_or_update_paper({
+            "title": "Unselected Core High Paper", "title_norm": "unselected core high paper",
+            "venue": "ICLR", "year": 2025, "source": "openreview", "source_id": "uns1", "status": "accepted",
+            "abstract": "We study reward model overfitting in RLHF."
+        })
+        db.update_paper_tags(p1_id, {
+            "is_candidate": 1, "is_relevant": 1, "relevance_level": "A_Core_PostTraining", "priority": "High", "confidence": 0.8
+        })
+
+        # Paper 2: Manual Selected Paper
+        p2_id = db.insert_or_update_paper({
+            "title": "Selected Paper", "title_norm": "selected paper",
+            "venue": "ICLR", "year": 2025, "source": "openreview", "source_id": "sel1", "status": "accepted",
+            "abstract": "We study direct preference optimization."
+        })
+        db.update_paper_tags(p2_id, {
+            "is_candidate": 1, "is_relevant": 1, "relevance_level": "A_Core_PostTraining", "priority": "High", "confidence": 0.9
+        })
+        
+        db.close()
+
+        # Let's create a temporary overrides YAML representing this state
+        temp_overrides_path = os.path.join(self.test_dir, "test_decouple_overrides.yaml")
+        sync_overrides_data = {
+            "sel1": {
+                "title": "Selected Paper",
+                "manual_selected": True,
+                "include_in_siyuan": True,
+                "include_in_reading_queue": True
+            }
+        }
+        with open(temp_overrides_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(sync_overrides_data, f)
+
+        # Initialize App
+        app = PostTrainRadarApp(db_path=self.db_path, overrides_path=temp_overrides_path)
+
+        # 1. Test skip-collect mode:
+        # Verify it runs re-classify, applies YAML overrides, and updates the queue
+        with patch('src.app.SiYuanExporter') as mock_siyuan_exporter_class:
+            mock_siyuan_exporter = MagicMock()
+            mock_siyuan_exporter.test_connection.return_value = True
+            mock_siyuan_exporter.validate_notebook.return_value = True
+            mock_siyuan_exporter_class.return_value = mock_siyuan_exporter
+            
+            # Execute with skip_collect=True, sync_only=False
+            app.run_pipeline(
+                venue="ICLR", year=2025, target_exporter="siyuan",
+                overwrite=True, dry_run=False, siyuan_scope="selected",
+                skip_collect=True, sync_only=False
+            )
+            
+            # Assert "Selected Paper" was synced, but "Unselected Core High Paper" was NOT synced
+            synced_paper_titles = []
+            for call in mock_siyuan_exporter.export_paper_note.call_args_list:
+                paper_arg = call[0][0]
+                synced_paper_titles.append(paper_arg.get("title"))
+                
+            self.assertIn("Selected Paper", synced_paper_titles)
+            self.assertNotIn("Unselected Core High Paper", synced_paper_titles, "Unselected core high paper must not be synced under selected scope even if it is Core & High priority")
+
+        # Verify 精选阅读队列 was updated and contains only "Selected Paper"
+        db = DatabaseManager(self.db_path)
+        all_papers = db.get_classified_papers("ICLR", 2025)
+        db.close()
+        featured_queue_md = app.generate_reading_queue_featured(all_papers)
+        self.assertIn("Selected Paper", featured_queue_md)
+        self.assertNotIn("Unselected Core High Paper", featured_queue_md)
+
+        # 2. Test sync-only mode:
+        # Update overrides to also select "Unselected Core High Paper"
+        sync_overrides_data["uns1"] = {
+            "title": "Unselected Core High Paper",
+            "manual_selected": True,
+            "include_in_siyuan": True,
+            "include_in_reading_queue": True
+        }
+        with open(temp_overrides_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(sync_overrides_data, f)
+
+        # Execute with sync_only=True
+        with patch('src.app.SiYuanExporter') as mock_siyuan_exporter_class, \
+             patch.object(app, 'run_collect') as mock_collect, \
+             patch.object(app.classifier, 'classify') as mock_classify:
+                 
+            mock_siyuan_exporter = MagicMock()
+            mock_siyuan_exporter.test_connection.return_value = True
+            mock_siyuan_exporter.validate_notebook.return_value = True
+            mock_siyuan_exporter_class.return_value = mock_siyuan_exporter
+            
+            app.run_pipeline(
+                venue="ICLR", year=2025, target_exporter="siyuan",
+                overwrite=True, dry_run=False, siyuan_scope="selected",
+                skip_collect=False, sync_only=True
+            )
+            
+            # Assert collectors and full classifier were skipped completely (to prove fast lightweight sync)
+            mock_collect.assert_not_called()
+            mock_classify.assert_not_called()
+            
+            # Assert "Unselected Core High Paper" has now successfully entered selected sync
+            synced_paper_titles = []
+            for call in mock_siyuan_exporter.export_paper_note.call_args_list:
+                paper_arg = call[0][0]
+                synced_paper_titles.append(paper_arg.get("title"))
+                
+            self.assertIn("Selected Paper", synced_paper_titles)
+            self.assertIn("Unselected Core High Paper", synced_paper_titles)
+
 if __name__ == "__main__":
     unittest.main()

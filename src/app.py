@@ -122,8 +122,8 @@ class PostTrainRadarApp:
         
         return saved_ids
 
-    def run_filter(self, paper_ids: list = None) -> int:
-        papers = self.db.get_classified_papers()
+    def run_filter(self, paper_ids: list = None, venue: str = None, year: int = None) -> int:
+        papers = self.db.get_classified_papers(venue, year)
         candidate_count = 0
 
         for p in papers:
@@ -157,16 +157,26 @@ class PostTrainRadarApp:
 
         return candidate_count
 
-    def run_classify(self, paper_ids: list = None) -> int:
-        papers = self.db.get_classified_papers()
+    def run_classify(self, paper_ids: list = None, venue: str = None, year: int = None) -> int:
+        self.classifier._load_overrides() # Ensure latest overrides are loaded
+        papers = self.db.get_classified_papers(venue, year)
         relevant_count = 0
 
         for p in papers:
             if paper_ids and p["id"] not in paper_ids:
                 continue
             
-            # Only classify if is_candidate is true
-            if not p.get("is_candidate"):
+            # Check if paper has manual overrides
+            has_override = False
+            title_norm = p.get("title_norm")
+            source_id = p.get("source_id")
+            if source_id and str(source_id).lower().strip() in self.classifier.overrides:
+                has_override = True
+            elif title_norm in self.classifier.overrides:
+                has_override = True
+
+            # Only classify if is_candidate is true OR has manual override
+            if not p.get("is_candidate") and not has_override:
                 self.db.update_paper_tags(p["id"], {"is_relevant": 0})
                 continue
 
@@ -699,9 +709,75 @@ class PostTrainRadarApp:
                     content = f.read()
                 exporter.export_workflow_prompts(prompt_name, content, overwrite)
 
-    def run_pipeline(self, venue: str, year: int, source_type: str = "openreview", target_exporter: str = "markdown", overwrite: bool = False, dry_run: bool = False, siyuan_scope: str = "selected", max_siyuan_notes: int = 30, patch_scope: str = "selected", confirm_all_sync: bool = False):
+    def apply_overrides_only(self, venue: str, year: int):
+        self.classifier._load_overrides() # Reload latest overrides from YAML
+        papers = self.db.get_classified_papers(venue, year)
+        logger.info(f"[*] Applying manual overrides from {self.overrides_path} to all {len(papers)} database papers...")
+        
+        for p in papers:
+            title_norm = p.get("title_norm")
+            source_id = p.get("source_id")
+            override = None
+            
+            if source_id and str(source_id).lower().strip() in self.classifier.overrides:
+                override = self.classifier.overrides[str(source_id).lower().strip()]
+            elif title_norm in self.classifier.overrides:
+                override = self.classifier.overrides[title_norm]
+                
+            if override:
+                logger.info(f"[*] Found manual override for paper '{p.get('title')}': {override}")
+                tag_data = {
+                    "is_relevant": p.get("is_relevant") or 0,
+                    "relevance_level": p.get("relevance_level") or "D_Irrelevant",
+                    "is_core_posttraining": p.get("is_core_posttraining") or 0,
+                    "model_type": p.get("model_type") or "Other",
+                    "post_training_types": p.get("post_training_types") or [],
+                    "problem_tags": p.get("problem_tags") or [],
+                    "confidence": p.get("confidence") or 0.5,
+                    "reason": p.get("reason") or "Manual override applied",
+                    "reading_status": p.get("reading_status") or "Unread",
+                    "priority": p.get("priority") or "Medium",
+                    "share_status": p.get("share_status") or "Not Started",
+                    "next_action": p.get("next_action"),
+                    "reviewer_comment": p.get("reviewer_comment") or ""
+                }
+                
+                # Apply standard switches
+                for k, v in override.items():
+                    if k in tag_data:
+                        tag_data[k] = v
+                if "method_tags" in override:
+                    tag_data["post_training_types"] = override["method_tags"]
+                if "relevance_level" in override:
+                    lvl = override["relevance_level"]
+                    tag_data["is_core_posttraining"] = 1 if lvl == "A_Core_PostTraining" else 0
+                    tag_data["is_relevant"] = 1 if lvl in ["A_Core_PostTraining", "B_Related_LLM_VLM_Training_or_Evaluation"] else 0
+                if "is_core_posttraining" in override:
+                    tag_data["is_core_posttraining"] = 1 if override["is_core_posttraining"] else 0
+                if "is_relevant" in override:
+                    tag_data["is_relevant"] = 1 if override["is_relevant"] else 0
+                for extra in ["include_in_reading_queue", "include_in_knowledge_patches", "include_in_share_pool", "include_in_siyuan", "manual_selected", "reviewer_comment"]:
+                    if extra in override:
+                        val = override[extra]
+                        if isinstance(val, bool):
+                            val = 1 if val else 0
+                        tag_data[extra] = val
+                
+                self.db.update_paper_tags(p["id"], tag_data)
+            else:
+                # If a paper doesn't have an override, reset manual flags to 0/default to prevent previously-selected-but-now-deleted overrides from sticking
+                tag_data = {
+                    "manual_selected": 0,
+                    "include_in_siyuan": 0,
+                    "include_in_reading_queue": 0,
+                    "include_in_knowledge_patches": 0,
+                    "include_in_share_pool": 0
+                }
+                self.db.update_paper_tags(p["id"], tag_data)
+
+    def run_pipeline(self, venue: str, year: int, source_type: str = "openreview", target_exporter: str = "markdown", overwrite: bool = False, dry_run: bool = False, siyuan_scope: str = "selected", max_siyuan_notes: int = 30, patch_scope: str = "selected", confirm_all_sync: bool = False, skip_collect: bool = False, sync_only: bool = False):
         """
-        Executes the entire end-to-end flow.
+        Executes the pipeline (supports ingestion skip & sync-only).
         """
         # Set up logging dynamically
         os.makedirs("logs", exist_ok=True)
@@ -722,17 +798,39 @@ class PostTrainRadarApp:
         if dry_run:
             logger.info("[!] DRY RUN ENABLED - No writes will be committed.")
 
-        # 1. Collect
-        saved_ids = self.run_collect(venue, year, source_type)
-        total_count = len(saved_ids)
-        logger.info(f"[1/4] Collection completed. Standardized papers: {total_count}")
+        if sync_only:
+            logger.info("[*] SYNC-ONLY MODE ENABLED. Bypassing collection, filtering, and classification.")
+            logger.info("[*] Running lightweight apply_overrides to ensure data/manual/tag_overrides.yaml is applied.")
+            self.apply_overrides_only(venue, year)
+            
+            logger.info(f"Syncing metadata & notes (Target: {target_exporter}, Overwrite: {overwrite})...")
+            sync_metrics = self.run_sync(
+                venue, year, target_exporter, 
+                note_type="all", overwrite=overwrite, dry_run=dry_run, 
+                siyuan_scope=siyuan_scope, max_siyuan_notes=max_siyuan_notes, 
+                patch_scope=patch_scope, confirm_all_sync=confirm_all_sync
+            )
+            return
+
+        if skip_collect:
+            logger.info("[*] SKIP-COLLECT MODE ENABLED. Bypassing online OpenReview scraping.")
+            # Read all scraped papers for this venue/year in database
+            papers = self.db.get_classified_papers(venue, year)
+            saved_ids = [p["id"] for p in papers]
+            total_count = len(saved_ids)
+            logger.info(f"Loaded {len(saved_ids)} existing papers from local SQLite.")
+        else:
+            # 1. Collect
+            saved_ids = self.run_collect(venue, year, source_type)
+            total_count = len(saved_ids)
+            logger.info(f"[1/4] Collection completed. Standardized papers: {total_count}")
 
         # 2. Filter
-        candidate_count = self.run_filter(saved_ids)
+        candidate_count = self.run_filter(saved_ids, venue, year)
         logger.info(f"[2/4] Keyword screening completed. Candidates: {candidate_count}")
 
         # 3. Classify
-        relevant_count = self.run_classify(saved_ids)
+        relevant_count = self.run_classify(saved_ids, venue, year)
         logger.info(f"[3/4] Taxonomy classification completed. Relevant papers: {relevant_count}")
 
         # 4. Sync

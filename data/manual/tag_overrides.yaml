@@ -1,52 +1,40 @@
 # PostTrain Radar Manual Tag Overrides
 cbttLtO94Q:
   title: How to Evaluate Reward Models for RLHF
+  # 1. 状态与优先级管理
   priority: High
-  reading_status: Unread
-  relevance_level: A_Core_PostTraining
+  reading_status: Reading
+  share_status: WorthSharing
+  next_action: 完成阅读并分享
+  reviewer_comment: RLHF评估
+
+  #2. 精准同步控制
   manual_selected: true
   include_in_siyuan: true
   include_in_reading_queue: true
   include_in_share_pool: true
-  reviewer_comment: Selected for closed-loop validation.
-SQnitDuow6:
-  title: 'Value-Incentivized Preference Optimization: A Unified Approach to Online
-    and Offline RLHF'
+  include_in_knowledge_patches: true
+
+  #3. 分类微调（按需）
+  model_type: 
+  method_tags:
+    - Reward Modeling
+    - Evaluation / Benchmark
+  problem_tags:
+    - Reward Model Overfitting
+
+OuMNJoKJBQ:
+  title: 'Alignment-Weighted DPO:  A principled reasoning approach to improve safety
+    alignment'
+    # 1. 状态与优先级管理
   priority: High
   reading_status: Unread
-  relevance_level: A_Core_PostTraining
+  share_status: WorthSharing
+  next_action: 准备阅读
+
+  #2. 精准同步控制
   manual_selected: true
   include_in_siyuan: true
   include_in_reading_queue: true
   include_in_share_pool: true
-  reviewer_comment: Selected for closed-loop validation.
-44z7HL4mfX:
-  title: 'Instruct-SkillMix: A Powerful Pipeline for LLM Instruction Tuning'
-  priority: High
-  reading_status: Unread
-  relevance_level: A_Core_PostTraining
-  manual_selected: true
-  include_in_siyuan: true
-  include_in_reading_queue: true
-  include_in_share_pool: true
-  reviewer_comment: Selected for closed-loop validation.
-MnJzJ2gvuf:
-  title: 'MAVIS: Mathematical Visual Instruction Tuning with an Automatic Data Engine'
-  priority: High
-  reading_status: Unread
-  relevance_level: A_Core_PostTraining
-  manual_selected: true
-  include_in_siyuan: true
-  include_in_reading_queue: true
-  include_in_share_pool: true
-  reviewer_comment: Selected for closed-loop validation.
-dliIIodM6b:
-  title: Bootstrapping Language Models with DPO Implicit Rewards
-  priority: High
-  reading_status: Unread
-  relevance_level: A_Core_PostTraining
-  manual_selected: true
-  include_in_siyuan: true
-  include_in_reading_queue: true
-  include_in_share_pool: true
-  reviewer_comment: Selected for closed-loop validation.
+  include_in_knowledge_patches: true
