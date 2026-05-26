@@ -24,26 +24,36 @@ def get_safe_filename(title: str) -> str:
 
 def main():
     parser = argparse.ArgumentParser(description="Export a comprehensive Reading Packet for a paper.")
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--paper-id", type=int, help="Database paper ID")
-    group.add_argument("--title", type=str, help="Paper title")
+    parser.add_argument("--paper-id", type=int, help="Database paper ID")
+    parser.add_argument("--source-id", type=str, help="Source system ID (e.g. OpenReview forum ID or ArXiv ID)")
+    parser.add_argument("--title", type=str, help="Paper title")
     parser.add_argument("--venue", type=str, help="Filter by venue")
     parser.add_argument("--year", type=int, help="Filter by year")
     
     args = parser.parse_args()
     
+    if not (args.paper_id or args.source_id or args.title):
+        parser.error("At least one of --paper-id, --source-id, or --title must be specified.")
+        
     app = PostTrainRadarApp()
     
-    # Query matching paper
-    papers = app.db.get_classified_papers(venue=args.venue, year=args.year)
+    # Query matching paper based on priority: paper_id > source_id > title + venue/year
     target_paper = None
     
     if args.paper_id:
+        papers = app.db.get_classified_papers(venue=None, year=None)
         for p in papers:
             if p["id"] == args.paper_id:
                 target_paper = p
                 break
+    elif args.source_id:
+        papers = app.db.get_classified_papers(venue=None, year=None)
+        for p in papers:
+            if p.get("source_id") and str(p["source_id"]).strip().lower() == str(args.source_id).strip().lower():
+                target_paper = p
+                break
     elif args.title:
+        papers = app.db.get_classified_papers(venue=args.venue, year=args.year)
         target_norm = normalize_title(args.title)
         for p in papers:
             if normalize_title(p["title"]) == target_norm:

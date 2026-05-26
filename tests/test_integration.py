@@ -997,5 +997,50 @@ class TestIntegration(unittest.TestCase):
                 os.remove(out_file)
             mock_app.db.close()
 
+        # Test 2: Source ID lookup
+        test_args_2 = ["export_reading_packet.py", "--source-id", "packet_p1"]
+        with patch('sys.argv', test_args_2), patch('scripts.export_reading_packet.PostTrainRadarApp') as mock_app_class:
+            mock_app = MagicMock()
+            mock_app.db = DatabaseManager(self.db_path)
+            mock_app.note_gen = NoteGenerator()
+            mock_app.share_gen = ShareGenerator()
+            mock_app.get_exporter.return_value = None
+            mock_app_class.return_value = mock_app
+            
+            main()
+            
+            out_file = "data/reading_packets/Export_Packet_Test_Paper_reading_packet.md"
+            self.assertTrue(os.path.exists(out_file))
+            if os.path.exists(out_file):
+                os.remove(out_file)
+            mock_app.db.close()
+            
+        # Test 3: Priority paper_id > source_id > title
+        db = DatabaseManager(self.db_path)
+        paper2 = {
+            "title": "Export Packet Test Paper 2", "title_norm": "export packet test paper 2", "venue": "ICLR", "year": 2025,
+            "source": "openreview", "source_id": "packet_p2", "status": "accepted",
+            "abstract": "This is abstract 2."
+        }
+        paper2_id = db.insert_or_update_paper(paper2)
+        db.close()
+        
+        test_args_3 = ["export_reading_packet.py", "--paper-id", str(paper2_id), "--source-id", "packet_p1", "--title", "Export Packet Test Paper"]
+        with patch('sys.argv', test_args_3), patch('scripts.export_reading_packet.PostTrainRadarApp') as mock_app_class:
+            mock_app = MagicMock()
+            mock_app.db = DatabaseManager(self.db_path)
+            mock_app.note_gen = NoteGenerator()
+            mock_app.share_gen = ShareGenerator()
+            mock_app.get_exporter.return_value = None
+            mock_app_class.return_value = mock_app
+            
+            main()
+            
+            out_file = "data/reading_packets/Export_Packet_Test_Paper_2_reading_packet.md"
+            self.assertTrue(os.path.exists(out_file), "Should resolve to paper2 by paper_id priority")
+            if os.path.exists(out_file):
+                os.remove(out_file)
+            mock_app.db.close()
+
 if __name__ == "__main__":
     unittest.main()

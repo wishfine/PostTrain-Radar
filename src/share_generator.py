@@ -117,9 +117,10 @@ class ShareGenerator:
 - PDF: {paper.get("pdf_url") or "N/A"}"""
  
         audience_list = []
-        if "VLM" in paper.get("model_type", ""):
+        model_type = paper.get("model_type") or ""
+        if "VLM" in model_type:
             audience_list.append("- VLM / 多模态对齐方向研究者")
-        if "Agent" in paper.get("model_type", ""):
+        if "Agent" in model_type:
             audience_list.append("- AI Agent / 动作空间强化学习方向研究者")
         if any(t in post_train_str for t in ["DPO", "Preference"]):
             audience_list.append("- 偏好对齐 (DPO/Preference Optimization) 关注者")
