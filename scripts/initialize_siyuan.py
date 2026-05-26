@@ -674,6 +674,924 @@ graph TD
     create_doc(notebook_id, "/99_Archive/Old_Share_Drafts", "# Old Share Drafts\n\n历史已分享完毕或废弃的组会分享、博客草稿。")
     create_doc(notebook_id, "/99_Archive/False_Positive_Papers", "# False Positive Papers\n\n误筛选为相关的论文，移至此处以归档并避免干扰主知识库。")
 
+    # 10. PostTrain Radar 完整工作流
+    workflow_md = """# PostTrain Radar 完整工作流
+
+> PostTrain Radar 不是全量论文收藏库，而是一个面向 LLM/VLM post-training 论文的“筛选—阅读—沉淀—分享”研究工作流。
+
+核心原则：
+
+```text
+项目负责全量抓取和初筛；
+思源只保存精选论文；
+阅读 session 辅助理解和批判；
+我负责最终判断、笔记和分享。
+```
+
+---
+
+## 1. 系统定位
+
+PostTrain Radar 的目标不是把所有论文都塞进思源，而是帮助我完成：
+
+```text
+顶会论文搜集
+→ LLM/VLM post-training 相关论文筛选
+→ 精选论文进入思源
+→ 人工阅读和判断
+→ 知识回流到方法页 / 问题页
+→ 形成组会分享、博客或 PPT 大纲
+```
+
+思源知识库的定位是：
+
+```text
+精选阅读工作台
+个人思考沉淀区
+专题分享准备区
+```
+
+不是：
+
+```text
+ICLR / NeurIPS / ACL / CVPR 全量论文数据库
+```
+
+全量数据保存在：
+
+```text
+SQLite 数据库
+CSV / Markdown reports
+data/processed/
+data/reports/
+data/00_Index/
+```
+
+精选内容才进入思源。
+
+---
+
+## 2. 三个固定 session 分工
+
+### 2.1 PostTrain Radar 项目 session
+
+负责工程 and 自动化：
+
+```text
+论文抓取
+分类打标
+生成候选列表
+生成 Paper Card
+同步思源
+导出 reading packet
+清理 / 归档
+GitHub / 测试 / bug 修复
+```
+
+适合问它：
+
+```text
+pipeline 为什么报错？
+候选列表怎么生成？
+为什么某篇论文没同步？
+Paper Card 格式是否正确？
+cleanup_siyuan 怎么用？
+```
+
+---
+
+### 2.2 思源知识库设计 session
+
+负责结构 and 规范：
+
+```text
+知识库目录结构
+Paper Card 模板
+Topic / Method / Problem 页面模板
+分享页模板
+同步安全规则
+精选同步原则
+阅读后思考沉淀流程
+```
+
+适合问它：
+
+```text
+知识库结构是否合理？
+某个页面该放在哪里？
+Paper Card 模板是否需要改？
+方法页和问题页怎么组织？
+```
+
+---
+
+### 2.3 论文阅读 session
+
+负责选定论文后的学术阅读：
+
+```text
+审查自动分类
+分析研究问题
+解释方法本质
+判断创新点
+批判实验逻辑
+生成 My Reading Notes 草稿
+生成 My Judgment 草稿
+建议知识回流页面
+生成 5min / 15min 分享稿
+```
+
+适合问它：
+
+```text
+这篇论文到底解决什么问题？
+它的核心创新是否实质？
+实验是否支撑 claim？
+应该回流到哪个 Method / Problem 页面？
+是否值得分享？
+```
+
+---
+
+## 3. 知识库目录结构
+
+```text
+PostTrain Radar
+├── 00_Index
+│   ├── 总入口
+│   ├── LLM Post-training 路线图
+│   ├── VLM Post-training 路线图
+│   ├── 精选阅读队列
+│   ├── 阅读后思考索引
+│   ├── 知识回流建议
+│   └── 已分享内容索引
+│
+├── 01_Papers
+│   ├── Paper_Card_Template
+│   ├── ICLR_2025
+│   ├── NeurIPS_2025
+│   ├── ICML_2025
+│   ├── ACL_2025
+│   ├── EMNLP_2025
+│   ├── CVPR_2025
+│   ├── ICCV_2025
+│   ├── ArXiv_Preprints
+│   └── Manual_Import
+│
+├── 02_Topics
+│   ├── LLM_PostTraining
+│   ├── VLM_PostTraining
+│   ├── Agent_PostTraining
+│   └── Evaluation
+│
+├── 03_Methods
+│   ├── SFT
+│   ├── RLHF
+│   ├── DPO
+│   ├── GRPO
+│   ├── Reward_Modeling
+│   ├── Process_Reward_Model
+│   ├── Verifier_Critic
+│   ├── Test_Time_Scaling
+│   └── Multimodal_Alignment
+│
+├── 04_Problems
+│   ├── Reward_Hacking
+│   ├── Length_Bias
+│   ├── Credit_Assignment
+│   ├── Distribution_Shift
+│   ├── Reward_Model_Overfitting
+│   ├── Evaluation_Leakage
+│   ├── Multimodal_Hallucination
+│   ├── Visual_Grounding_Failure
+│   ├── Tool_Use_Credit_Assignment
+│   ├── Test_Time_Compute_Cost
+│   └── Data_Quality
+│
+├── 05_Share
+│   ├── Group_Meeting
+│   │   ├── Paper_Briefs
+│   │   ├── 分享稿模板
+│   │   ├── DPO为什么没有完全替代RLHF
+│   │   ├── GRPO的核心思想与潜在问题
+│   │   └── VLM后训练到底难在哪里
+│   ├── Weekly_Reports
+│   ├── Blog_Drafts
+│   ├── PPT_Outlines
+│   └── Share_Topic_Pool
+│
+├── 06_Workflows
+│   ├── Prompts
+│   ├── Reading_Workflows
+│   └── Automation
+│
+└── 99_Archive
+    ├── Bulk_Imported
+    ├── Deprecated_Templates
+    ├── Old_Share_Drafts
+    └── False_Positive_Papers
+```
+
+---
+
+## 4. 标准使用流程
+
+### Step 1：全量抓取与分类
+
+由 PostTrain Radar 项目完成。
+
+示例：
+
+```bash
+./venv/bin/python run_pipeline.py \
+  --venue ICLR \
+  --year 2025 \
+  --sync-target markdown
+```
+
+这一步只生成本地数据，不同步思源。
+
+主要输出：
+
+```text
+data/processed/
+data/reports/
+data/00_Index/Reading_Queue_Full.md
+data/00_Index/精选阅读队列.md
+```
+
+注意：
+
+```text
+Reading_Queue_Full 只保存在本地，不进入思源。
+```
+
+---
+
+### Step 2：生成候选论文列表
+
+```bash
+./venv/bin/python scripts/generate_override_candidates.py \
+  --venue ICLR \
+  --year 2025 \
+  --top-k 50
+```
+
+输出：
+
+```text
+data/manual/tag_overrides_candidates_iclr_2025.yaml
+```
+
+这个文件用于人工挑选论文。
+
+每篇论文会包含：
+
+```text
+title
+source_id
+venue
+year
+relevance_level
+priority
+confidence
+model_type
+method_tags
+problem_tags
+matched_evidence
+reviewer_comment
+```
+
+所有同步开关默认是 false：
+
+```yaml
+manual_selected: false
+include_in_siyuan: false
+include_in_reading_queue: false
+include_in_knowledge_patches: false
+include_in_share_pool: false
+```
+
+---
+
+### Step 3：人工选择论文
+
+打开：
+
+```text
+data/manual/tag_overrides_candidates_iclr_2025.yaml
+```
+
+选择我真正想读的论文，将其复制到：
+
+```text
+data/manual/tag_overrides.yaml
+```
+
+并改成：
+
+```yaml
+manual_selected: true
+include_in_siyuan: true
+include_in_reading_queue: true
+```
+
+如果觉得它适合分享，可以加：
+
+```yaml
+include_in_share_pool: true
+share_status: "WorthSharing"
+```
+
+如果只是暂时想读，不一定分享：
+
+```yaml
+share_status: "Maybe"
+```
+
+推荐每个大型会议只选：
+
+```text
+5–10 篇精读候选
+最多不超过 30 篇进入思源
+```
+
+---
+
+### Step 4：selected dry-run
+
+在真正同步前，必须先 dry-run：
+
+```bash
+./venv/bin/python run_pipeline.py \
+  --venue ICLR \
+  --year 2025 \
+  --sync-target siyuan \
+  --siyuan-scope selected \
+  --max-siyuan-notes 30 \
+  --dry-run
+```
+
+检查输出：
+
+```text
+data/reports/siyuan_sync_plan_iclr_2025.md
+```
+
+确认：
+
+```text
+只同步 selected 论文；
+不会同步 Reading_Queue_Full；
+不会同步几百篇论文；
+不会覆盖 Prompt 页面；
+不会批量生成无用 Share Brief。
+```
+
+---
+
+### Step 5：selected 真同步
+
+确认 dry-run 没问题后执行：
+
+```bash
+./venv/bin/python run_pipeline.py \
+  --venue ICLR \
+  --year 2025 \
+  --sync-target siyuan \
+  --siyuan-scope selected \
+  --max-siyuan-notes 30
+```
+
+同步到思源的内容包括：
+
+```text
+精选阅读队列
+阅读后思考索引
+知识回流建议
+分享候选池
+selected 论文卡片
+必要的 workflow / prompt 页面
+```
+
+不会同步：
+
+```text
+Reading_Queue_Full
+全量 relevant papers
+Low priority 未精选论文
+未选中的 per-paper Share Brief
+```
+
+---
+
+## 5. Paper Card 使用方式
+
+每篇进入思源的论文卡片包含：
+
+```text
+Auto Metadata
+AI Draft Summary
+Classification Evidence
+AI Draft Review
+My Reading Notes
+My Judgment
+Knowledge Extraction
+Knowledge Backfeed Status
+Share Decision
+Next Action
+```
+
+---
+
+### 5.1 自动生成区域
+
+由 PostTrain Radar 生成：
+
+```text
+Auto Metadata
+AI Draft Summary
+Classification Evidence
+```
+
+这些内容用于快速判断论文是否值得读。
+
+---
+
+### 5.2 人工保护区域
+
+这些区域任何自动同步都不能覆盖：
+
+```text
+AI Draft Review
+My Reading Notes
+My Judgment
+Knowledge Backfeed Status
+```
+
+其中最重要的是：
+
+```text
+My Reading Notes
+My Judgment
+```
+
+这两个区域必须以我的理解为准，不能直接照抄 AI。
+
+---
+
+### 5.3 知识回流区域
+
+```text
+Knowledge Extraction
+Knowledge Backfeed Status
+```
+
+用于判断这篇论文应该回流到：
+
+```text
+02_Topics
+03_Methods
+04_Problems
+05_Share
+```
+
+---
+
+## 6. 导出 reading packet
+
+选定论文后，导出阅读包：
+
+```bash
+./venv/bin/python scripts/export_reading_packet.py \
+  --title "论文标题" \
+  --venue ICLR \
+  --year 2025
+```
+
+输出：
+
+```text
+data/reading_packets/{safe_title}_reading_packet.md
+```
+
+reading packet 应包含：
+
+```text
+Paper Card
+Auto Metadata
+AI Draft Summary
+Classification Evidence
+Abstract
+method_tags
+problem_tags
+relevance_level
+priority
+推荐回流页面
+Share Brief 开发草稿
+阅读助手使用说明
+```
+
+---
+
+## 7. 开启论文阅读 session
+
+新开一个专门的阅读 session。
+
+开场输入：
+
+```text
+下面是 PostTrain Radar 生成的 reading packet。请你作为我的 PostTrain Radar 论文阅读助手，基于这个 packet 审查自动分类是否合理，并帮助我生成适合写入思源 Paper Card 的 My Reading Notes、My Judgment、AI Draft Review、Knowledge Extraction、Share Decision 和 Next Action。
+
+注意：不要脱离 PostTrain Radar 泛泛总结论文。请围绕 Paper Card、Classification Evidence、Method Tags、Problem Tags、知识回流和分享输出进行分析。
+```
+
+然后粘贴 reading packet。
+
+---
+
+## 8. 阅读 session 的任务
+
+阅读 session 需要帮助我完成：
+
+```text
+审查自动分类是否合理；
+分析论文核心问题；
+判断方法本质；
+评价创新点；
+批判实验逻辑；
+指出局限性；
+生成 My Reading Notes 草稿；
+生成 My Judgment 草稿；
+建议 Knowledge Extraction；
+判断 Share Decision；
+生成分享稿结构。
+```
+
+但最终写入思源前，我必须人工确认。
+
+---
+
+## 9. 我如何填 Paper Card
+
+### My Reading Notes
+
+写：
+
+```text
+我为什么读这篇论文；
+读完后真正理解了什么；
+关键方法或机制；
+实验细节；
+还没看懂的地方。
+```
+
+---
+
+### My Judgment
+
+写：
+
+```text
+这篇论文的真实贡献；
+它是否只是 benchmark / 工程组合；
+它和 SFT / RLHF / DPO / GRPO / Reward Model 的关系；
+我的批判性评价。
+```
+
+---
+
+### AI Draft Review
+
+写：
+
+```text
+AI Draft 是否可信；
+AI 错在哪里；
+我修正后的理解；
+是否需要重新生成。
+```
+
+---
+
+### Knowledge Extraction
+
+写：
+
+```text
+应该回流到哪些 Topic 页面；
+应该回流到哪些 Method 页面；
+应该回流到哪些 Problem 页面；
+是否应该进入 Share。
+```
+
+注意：
+
+```text
+不要写无意义占位双链。
+不要写 [[方法或机制链接]]。
+不确定就写“待人工补充”。
+```
+
+---
+
+### Share Decision
+
+写：
+
+```text
+是否值得分享；
+分享价值；
+适合 5min / 15min / 30min；
+分享角度；
+目标听众。
+```
+
+---
+
+## 10. 知识回流流程
+
+读完论文后，不应该只停留在 Paper Card。
+
+需要把有价值的观点回流到：
+
+```text
+03_Methods
+04_Problems
+05_Share
+```
+
+---
+
+### 10.1 回流到 Method 页面
+
+例如：
+
+```text
+[[Reward_Modeling]]
+[[DPO]]
+[[GRPO]]
+[[RLHF]]
+[[Test_Time_Scaling]]
+```
+
+写入：
+
+```text
+## 来自论文阅读的思考
+```
+
+内容应该是跨论文可复用的理解，而不是单篇摘要。
+
+---
+
+### 10.2 回流到 Problem 页面
+
+例如：
+
+```text
+[[Reward_Hacking]]
+[[Length_Bias]]
+[[Credit_Assignment]]
+[[Evaluation_Leakage]]
+[[Distribution_Shift]]
+[[Reward_Model_Overfitting]]
+```
+
+写入：
+
+```text
+## 来自论文阅读的思考
+```
+
+内容应该是问题意识、风险、矛盾或局限。
+
+---
+
+### 10.3 回流到 Share 页面
+
+如果论文值得分享，进入：
+
+```text
+05_Share/Group_Meeting/Paper_Briefs/{VENUE}_{YEAR}/
+```
+
+或者整理成专题分享：
+
+```text
+05_Share/Group_Meeting/
+```
+
+分享稿必须包含：
+
+```text
+观点来源
+论文来源
+方法页来源
+问题页来源
+内部链接来源
+我的核心判断
+5 分钟分享结构
+15 分钟分享结构
+可讨论问题
+```
+
+---
+
+## 11. 分享输出流程
+
+如果一篇论文值得分享，先让阅读 session 生成：
+
+```text
+30 秒口头概括
+5 分钟组会分享结构
+15 分钟技术分享结构
+3 个讨论问题
+```
+
+然后我再根据需要改成：
+
+```text
+组会分享稿
+博客草稿
+PPT 大纲
+```
+
+---
+
+## 12. 清理与归档规则
+
+如果思源中误同步了太多论文，不直接删除，优先归档：
+
+```bash
+./venv/bin/python scripts/cleanup_siyuan.py \
+  --venue ICLR \
+  --year 2025 \
+  --mode archive \
+  --keep-scope selected \
+  --dry-run
+```
+
+确认后再执行真实归档：
+
+```bash
+./venv/bin/python scripts/cleanup_siyuan.py \
+  --venue ICLR \
+  --year 2025 \
+  --mode archive \
+  --keep-scope selected \
+  --no-dry-run
+```
+
+规则：
+
+```text
+默认 dry-run；
+默认 archive；
+delete 必须强确认；
+含 My Reading Notes / My Judgment / AI Draft Review 的页面不能清理；
+归档使用 moveDocsByID，不能删除重建。
+```
+
+---
+
+## 13. 禁止操作
+
+日常不要运行：
+
+```bash
+--siyuan-scope all
+```
+
+除非非常确定，并且必须显式：
+
+```bash
+--confirm-all-sync
+```
+
+日常也不要把：
+
+```text
+Reading_Queue_Full
+全量 candidates
+全量 relevant papers
+Low priority 未精选论文
+```
+
+同步进思源。
+
+---
+
+## 14. 每篇论文的处理等级
+
+### A 档：精读
+
+适合：
+
+```text
+Reward Model
+DPO
+GRPO
+RLHF
+VLM Alignment
+和分享强相关
+和我的研究方向有关
+```
+
+需要完整填写：
+
+```text
+My Reading Notes
+My Judgment
+AI Draft Review
+Knowledge Extraction
+Share Decision
+```
+
+---
+
+### B 档：泛读
+
+只记录：
+
+```text
+一句话理解
+为什么不精读
+是否以后回看
+```
+
+---
+
+### C 档：跳过
+
+保留在本地数据库，不进入思源。
+
+---
+
+## 15. 验收标准
+
+这个工作流是否成功，不看同步了多少论文，而看是否完成下面闭环：
+
+```text
+我能从候选列表中快速选出 5–10 篇；
+思源中只出现少量精选论文；
+Paper Card 阅读体验干净；
+My Reading Notes 不会被覆盖；
+我能读完一篇并写出 My Judgment；
+我能把一个观点回流到 Method / Problem 页面；
+我能基于它生成 5 分钟分享稿。
+```
+
+---
+
+## 16. 当前推荐的第一篇闭环论文
+
+建议优先测试：
+
+```text
+How to Evaluate Reward Models for RLHF
+```
+
+原因：
+
+```text
+方向明确：Reward Model / RLHF / Evaluation；
+适合回流到 Reward_Modeling；
+适合讨论 Evaluation_Leakage / Reward_Hacking；
+适合做 5 分钟组会分享；
+能验证整个阅读闭环。
+```
+
+---
+
+# 最终工作流总结
+
+```text
+PostTrain Radar 项目：
+全量抓取、分类、候选、同步、导出 reading packet
+
+思源知识库：
+保存精选论文、人工笔记、知识回流、分享材料
+
+阅读 session：
+陪我读论文、批判分析、生成草稿、辅助分享
+
+我自己：
+选择论文、阅读正文、确认判断、写入最终笔记、做分享
+```
+
+最终目标不是“收集很多论文”，而是：
+
+```text
+少量精选论文
+→ 深入理解
+→ 形成自己的判断
+→ 沉淀到知识库
+→ 输出为分享
+```
+"""
+    create_doc(notebook_id, "/完整工作流", workflow_md)
+
     print("\n=== SiYuan Workspace Rebuild Completed Successfully ===")
 
 if __name__ == "__main__":

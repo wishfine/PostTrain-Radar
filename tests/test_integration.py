@@ -502,7 +502,8 @@ class TestIntegration(unittest.TestCase):
                 "relevance_level": "A_Core_PostTraining",
                 "is_core_posttraining": 1,
                 "priority": "Medium",
-                "reading_status": "Unread"
+                "reading_status": "Unread",
+                "include_in_reading_queue": 1
             },
             {
                 "title": "High Priority Related Paper",
@@ -512,7 +513,8 @@ class TestIntegration(unittest.TestCase):
                 "relevance_level": "B_Related_LLM_VLM_Training_or_Evaluation",
                 "is_core_posttraining": 0,
                 "priority": "High",
-                "reading_status": "Unread"
+                "reading_status": "Unread",
+                "include_in_reading_queue": 1
             },
             {
                 "title": "Low Priority Related Paper",

@@ -301,7 +301,7 @@ class PostTrainRadarApp:
     def generate_reading_queue_featured(self, papers: list) -> str:
         """
         Formats featured papers into a Reading Queue document.
-        Featured criteria: A_Core_PostTraining OR High priority OR manual override (include_in_reading_queue == 1) OR share_status == 'WorthSharing'.
+        Featured criteria: Only papers that are manually selected (manual_selected == 1 or include_in_reading_queue == 1).
         Only shows papers with reading_status in ['Unread', 'Reading'].
         """
         featured_papers = []
@@ -312,12 +312,9 @@ class PostTrainRadarApp:
             if status not in ["Unread", "Reading"]:
                 continue
             
-            is_a_core = (p.get("relevance_level") == "A_Core_PostTraining" or p.get("is_core_posttraining") == 1)
-            is_high_prio = (p.get("priority") == "High")
-            is_manual_selected = (p.get("include_in_reading_queue") == 1)
-            is_worth_sharing = (p.get("share_status") == "WorthSharing" or (p.get("share_status") and "WorthSharing" in p.get("share_status")))
+            is_manual = (p.get("include_in_reading_queue") == 1 or p.get("manual_selected") == 1)
             
-            if is_a_core or is_high_prio or is_manual_selected or is_worth_sharing:
+            if is_manual:
                 featured_papers.append(p)
                 
         high_prio = []
